@@ -1,0 +1,39 @@
+name: marker_widget
+description: >
+  Render any Flutter widget into a google_maps_flutter BitmapDescriptor,
+  with caching, proper pixel-ratio handling, and modern Flutter View APIs.
+version: 1.0.0
+
+homepage: https://github.com/omar-hanafy/marker_widget
+repository: https://github.com/omar-hanafy/marker_widget
+issue_tracker: https://github.com/omar-hanafy/marker_widget/issues
+documentation: https://github.com/omar-hanafy/marker_widget#readme
+
+topics:
+  - google-maps
+  - google-maps-flutter
+  - map
+  - marker
+  - widget
+
+platforms:
+  android:
+  ios:
+  web:
+
+environment:
+  sdk: ">=3.7.0 <4.0.0"
+  flutter: ">=3.29.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  google_maps_flutter: ^2.14.0
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
