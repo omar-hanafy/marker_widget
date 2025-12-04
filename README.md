@@ -16,14 +16,16 @@ Render any Flutter widget into a `BitmapDescriptor` for `google_maps_flutter` ma
   - `imagePixelRatio` — pixel‑perfect at the device DPR.
 - 🧠 **Context‑aware rendering**:
   - Respects `MediaQuery`, `Directionality`, and `Theme` from your app.
-- ⚡ **LRU cache**:
-  - Avoid re‑rendering identical markers (theme/locale/size aware).
-- 🖼️ **“Wait for images” mode**:
+- ⚡ **Smart LRU cache**:
+  - Count-based and **memory-based** eviction.
+  - **Concurrent request deduplication** — multiple calls with the same key share one render.
+- 🖼️ **"Wait for images" mode**:
   - Optional second pass when we detect `RenderImage` / `BoxDecoration.image`.
 - 🧹 **Impeller‑friendly**:
   - Disposes the intermediate `ui.Image` to avoid GPU leaks.
 - ✅ **Modern Flutter API**:
   - Uses the new `ViewConfiguration` constructor and `View.maybeOf`.
+  - Targets Flutter 3.29+ and `google_maps_flutter` 2.14+.
 
 Works wherever `google_maps_flutter` works: **Android, iOS, Web**.
 
@@ -31,7 +33,7 @@ Works wherever `google_maps_flutter` works: **Android, iOS, Web**.
 
 ## Installation
 
-In your app’s `pubspec.yaml`:
+In your app's `pubspec.yaml`:
 
 ```yaml
 dependencies:
@@ -40,7 +42,7 @@ dependencies:
 
   google_maps_flutter: ^2.14.0
   marker_widget: ^1.0.0
-````
+```
 
 Then:
 
@@ -101,9 +103,6 @@ class _MapWithWidgetMarkerState extends State<MapWithWidgetMarker> {
           brightness: Theme.of(context).brightness,
           locale: Localizations.maybeLocaleOf(context),
         ),
-        // Optional:
-        // scalingMode: MarkerIconScalingMode.imagePixelRatio,
-        // bitmapScaling: MapBitmapScaling.none,
       );
 
       if (!mounted) return;
@@ -185,6 +184,94 @@ class _UserMarkerCard extends StatelessWidget {
 
 ---
 
+## Render Once, Reuse Everywhere
+
+For **static markers** (like a picker pin or category icon) that don't change based on data, you can render once at app startup and reuse synchronously across all maps:
+
+```dart
+/// Store your pre-rendered markers globally or in your DI container
+class MarkerAssets {
+  static late final MarkerIcon pickerIcon;
+  static late final MarkerIcon restaurantIcon;
+  static late final MarkerIcon gasStationIcon;
+
+  /// Call once during app initialization
+  static Future<void> preload(BuildContext context) async {
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    const size = Size(56, 56);
+
+    // Render all static markers in parallel
+    final results = await Future.wait([
+      const PickerPinWidget().toMarkerIcon(
+        context,
+        logicalSize: size,
+      ),
+      const RestaurantMarkerWidget().toMarkerIcon(
+        context,
+        logicalSize: size,
+      ),
+      const GasStationMarkerWidget().toMarkerIcon(
+        context,
+        logicalSize: size,
+      ),
+    ]);
+
+    pickerIcon = results[0];
+    restaurantIcon = results[1];
+    gasStationIcon = results[2];
+  }
+}
+
+// In main.dart
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(
+    MaterialApp(
+      home: Builder(
+        builder: (context) {
+          // Preload after first frame when context is available
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            MarkerAssets.preload(context);
+          });
+          return const MyApp();
+        },
+      ),
+    ),
+  );
+}
+
+// Later, anywhere in your app — fully synchronous!
+Marker(
+  markerId: const MarkerId('restaurant_123'),
+  position: restaurantLatLng,
+  icon: MarkerAssets.restaurantIcon.toBitmapDescriptor(), // ✅ No async!
+)
+```
+
+### Why This Pattern?
+
+- **Zero async tax** after initial load — `toBitmapDescriptor()` is synchronous
+- **Consistent across all maps** — same `MarkerIcon` instance everywhere
+- **Works with any state management** — Provider, Riverpod, GetIt, or plain statics
+- **Memory efficient** — one bitmap per marker type, not per marker instance
+
+### Direct `BytesMapBitmap` Access
+
+If you need the concrete google_maps_flutter type (for typed collections or interop):
+
+```dart
+// Extension method
+final bitmap = await MyWidget().toMapBitmap(context, logicalSize: size);
+
+// Or standalone function
+final bitmap = await widgetToMapBitmap(MyWidget(), logicalSize: size);
+
+// Or from a MarkerIcon
+final bitmap = markerIcon.toMapBitmap();
+```
+
+---
+
 ## API overview
 
 ### `WidgetMarkerExtension`
@@ -192,18 +279,14 @@ class _UserMarkerCard extends StatelessWidget {
 Available on every `Widget`:
 
 ```dart
-Future<BitmapDescriptor> toMarkerBitmap(
-  BuildContext context, {
-  MarkerIconRenderer? renderer,
-  Size logicalSize = const Size(96, 96),
-  double? pixelRatio,
-  bool waitForImages = false,
-  Object? cacheKey,
-  Duration? initialImageDelay,
-  Duration? imageRepaintDelay,
-  MapBitmapScaling bitmapScaling = MapBitmapScaling.auto,
-  MarkerIconScalingMode scalingMode = MarkerIconScalingMode.logicalSize,
-});
+// Returns BitmapDescriptor (abstract type)
+Future<BitmapDescriptor> toMarkerBitmap(BuildContext context, { ... });
+
+// Returns BytesMapBitmap (concrete type)
+Future<BytesMapBitmap> toMapBitmap(BuildContext context, { ... });
+
+// Returns MarkerIcon (for storage and later conversion)
+Future<MarkerIcon> toMarkerIcon(BuildContext context, { ... });
 ```
 
 Common options:
@@ -213,17 +296,19 @@ Common options:
 * **`waitForImages`** – do a cheap second pass when image render objects are detected.
 * **`cacheKey`** – any object/string that encodes everything affecting visuals.
 
-### `widgetToMarkerBitmap`
+### Standalone Functions
 
-Same as the extension, but without a `BuildContext`:
+Same as the extensions, but without a `BuildContext`:
 
 ```dart
-final descriptor = await widgetToMarkerBitmap(
-  MyMarkerWidget(),
-  logicalSize: const Size(96, 96),
-  waitForImages: true,
-  cacheKey: 'my-key',
-);
+// Returns BitmapDescriptor
+final descriptor = await widgetToMarkerBitmap(MyWidget(), logicalSize: size);
+
+// Returns BytesMapBitmap
+final bitmap = await widgetToMapBitmap(MyWidget(), logicalSize: size);
+
+// Returns MarkerIcon
+final icon = await widgetToMarkerIcon(MyWidget(), logicalSize: size);
 ```
 
 Useful for code that lives outside the widget tree but still runs on the UI isolate.
@@ -233,36 +318,42 @@ Useful for code that lives outside the widget tree but still runs on the UI isol
 The workhorse that does the off‑screen rendering:
 
 * Configurable:
-
   * `defaultLogicalSize`
   * `enableCaching`
-  * `maxCacheEntries`
+  * `maxCacheEntries` — count-based LRU limit
+  * `maxCacheBytes` — memory-based limit (default: 50MB)
   * `initialImageDelay` / `imageRepaintDelay`
-* Methods:
 
+* Methods:
   * `Future<MarkerIcon> render(Widget widget, { ... })`
   * `clearCache()`
   * `removeFromCache(Object key)`
+  * `isCached(Object key)` — check if a key exists
+  * `peekCache(Object key)` — get without LRU bump
+
+* Properties:
+  * `cacheSize` — current entry count
+  * `cacheSizeInBytes` — current memory usage
 
 You can pass your own `MarkerIconRenderer` everywhere to customize caching and timing.
 
 ### `MarkerIcon` & `MarkerIconScalingMode`
 
-* `MarkerIcon` is a small value object with:
-
+* `MarkerIcon` is a small **immutable** value object with:
   * `bytes` (PNG),
   * `logicalSize`,
   * `pixelRatio`,
-  * `toBitmapDescriptor(...)` helper.
+  * `sizeInBytes` — for memory tracking
+  * `toBitmapDescriptor(...)` — returns `BitmapDescriptor`
+  * `toMapBitmap(...)` — returns `BytesMapBitmap`
 
-* `MarkerIconScalingMode` tells `BitmapDescriptor.bytes` how to interpret the data:
-
-  * `logicalSize` (default) – pass `width`/`height`.
-  * `imagePixelRatio` – pass `imagePixelRatio` only.
+* `MarkerIconScalingMode` tells the conversion how to interpret the data:
+  * `logicalSize` (default) – pass `width`/`height` for consistent sizes.
+  * `imagePixelRatio` – pass `imagePixelRatio` for pixel-perfect rendering.
 
 ### `buildMarkerCacheKey`
 
-Helper to build a cache key that “does the right thing” for typical use cases:
+Helper to build a cache key that "does the right thing" for typical use cases:
 
 ```dart
 final key = buildMarkerCacheKey(
@@ -276,11 +367,33 @@ final key = buildMarkerCacheKey(
 
 ---
 
-## Caching tips
+## Performance Tips
+
+### Caching
 
 * **Always include size + DPR** in your cache key.
 * Include theme/locale if your marker visuals depend on them.
 * Use `MarkerIconRenderer(enableCaching: false)` if you want to fully control caching externally.
+* **Concurrent deduplication**: Multiple simultaneous calls with the same `cacheKey` automatically share one render operation.
+
+### Memory Management
+
+The default renderer limits cache to **50MB** (`maxCacheBytes`). Adjust based on your needs:
+
+```dart
+final renderer = MarkerIconRenderer(
+  maxCacheEntries: 100,      // Max 100 unique markers
+  maxCacheBytes: 20 * 1024 * 1024,  // Max 20MB
+);
+```
+
+### Static vs Dynamic Markers
+
+| Marker Type | Strategy |
+|-------------|----------|
+| **Static** (picker pin, category icons) | Render once at startup, store `MarkerIcon`, reuse everywhere |
+| **Semi-dynamic** (price labels, user avatars) | Use cache keys that capture all visual variants |
+| **Fully dynamic** (real-time updates) | Minimize size, consider simpler widgets |
 
 ---
 
@@ -292,7 +405,7 @@ If your marker includes `Image.network`, `FadeInImage`, or a `BoxDecoration.imag
 2. Pause briefly to let images start loading.
 3. If it finds any image render objects, it waits a bit more and repaints.
 
-This is a best‑effort optimization; it won’t wait for *all* images in pathological cases, but it’s usually enough for markers.
+This is a best‑effort optimization; it won't wait for *all* images in pathological cases, but it's usually enough for markers.
 
 ---
 
@@ -301,7 +414,8 @@ This is a best‑effort optimization; it won’t wait for *all* images in pathol
 * Must be called on the **UI isolate** (no background isolates).
 * This package only builds marker bitmaps; you still need to configure
   `google_maps_flutter` for Android, iOS, and Web (API key, manifests, etc.).
-* The example app assumes you’ve already wired up your Google Maps API keys.
+* The example app assumes you've already wired up your Google Maps API keys.
+* **Web**: Requires CanvasKit renderer (default in Flutter 3.24+).
 
 ---
 

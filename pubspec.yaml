@@ -2,7 +2,7 @@ name: marker_widget
 description: >
   Render any Flutter widget into a google_maps_flutter BitmapDescriptor,
   with caching, proper pixel-ratio handling, and modern Flutter View APIs.
-version: 1.0.0
+version: 1.1.0
 
 homepage: https://github.com/omar-hanafy/marker_widget
 repository: https://github.com/omar-hanafy/marker_widget
