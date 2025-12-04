@@ -126,9 +126,8 @@ void main() {
         );
 
         expect(
-          () => icon.toMapBitmap(
-            scalingMode: MarkerIconScalingMode.logicalSize,
-          ),
+          () =>
+              icon.toMapBitmap(scalingMode: MarkerIconScalingMode.logicalSize),
           throwsA(
             isA<StateError>().having(
               (e) => e.message,
@@ -147,9 +146,8 @@ void main() {
         );
 
         expect(
-          () => icon.toMapBitmap(
-            scalingMode: MarkerIconScalingMode.logicalSize,
-          ),
+          () =>
+              icon.toMapBitmap(scalingMode: MarkerIconScalingMode.logicalSize),
           throwsA(
             isA<StateError>().having(
               (e) => e.message,
@@ -160,26 +158,29 @@ void main() {
         );
       });
 
-      test('throws StateError for non-positive pixelRatio in imagePixelRatio mode', () {
-        final icon = MarkerIcon(
-          bytes: validPngBytes,
-          logicalSize: const Size(100, 100),
-          pixelRatio: 0,
-        );
+      test(
+        'throws StateError for non-positive pixelRatio in imagePixelRatio mode',
+        () {
+          final icon = MarkerIcon(
+            bytes: validPngBytes,
+            logicalSize: const Size(100, 100),
+            pixelRatio: 0,
+          );
 
-        expect(
-          () => icon.toMapBitmap(
-            scalingMode: MarkerIconScalingMode.imagePixelRatio,
-          ),
-          throwsA(
-            isA<StateError>().having(
-              (e) => e.message,
-              'message',
-              contains('pixelRatio must be > 0'),
+          expect(
+            () => icon.toMapBitmap(
+              scalingMode: MarkerIconScalingMode.imagePixelRatio,
             ),
-          ),
-        );
-      });
+            throwsA(
+              isA<StateError>().having(
+                (e) => e.message,
+                'message',
+                contains('pixelRatio must be > 0'),
+              ),
+            ),
+          );
+        },
+      );
     });
 
     group('toBitmapDescriptor', () {
@@ -243,10 +244,7 @@ void main() {
         final renderer = MarkerIconRenderer();
 
         await expectLater(
-          renderer.render(
-            const SizedBox(),
-            logicalSize: const Size(0, 100),
-          ),
+          renderer.render(const SizedBox(), logicalSize: const Size(0, 100)),
           throwsA(
             isA<ArgumentError>().having(
               (e) => e.message,
@@ -257,10 +255,7 @@ void main() {
         );
 
         await expectLater(
-          renderer.render(
-            const SizedBox(),
-            logicalSize: const Size(100, -10),
-          ),
+          renderer.render(const SizedBox(), logicalSize: const Size(100, -10)),
           throwsA(
             isA<ArgumentError>().having(
               (e) => e.message,
@@ -493,20 +488,20 @@ void main() {
   group('Widget rendering integration', () {
     testWidgets('renders simple widget to MarkerIcon', (tester) async {
       await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(body: SizedBox.shrink()),
-        ),
+        const MaterialApp(home: Scaffold(body: SizedBox.shrink())),
       );
 
       final context = tester.element(find.byType(Scaffold));
       final renderer = MarkerIconRenderer();
 
-      final icon = await tester.runAsync(() => renderer.render(
-        Container(width: 50, height: 50, color: Colors.red),
-        context: context,
-        logicalSize: const Size(50, 50),
-        pixelRatio: 1.0,
-      ));
+      final icon = await tester.runAsync(
+        () => renderer.render(
+          Container(width: 50, height: 50, color: Colors.red),
+          context: context,
+          logicalSize: const Size(50, 50),
+          pixelRatio: 1.0,
+        ),
+      );
 
       expect(icon, isA<MarkerIcon>());
       expect(icon!.bytes, isNotEmpty);
@@ -516,18 +511,17 @@ void main() {
 
     testWidgets('toMarkerBitmap extension works', (tester) async {
       await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(body: SizedBox.shrink()),
-        ),
+        const MaterialApp(home: Scaffold(body: SizedBox.shrink())),
       );
 
       final context = tester.element(find.byType(Scaffold));
 
       final descriptor = await tester.runAsync(
-        () => Container(width: 40, height: 40, color: Colors.blue).toMarkerBitmap(
-          context,
-          logicalSize: const Size(40, 40),
-        ),
+        () => Container(
+          width: 40,
+          height: 40,
+          color: Colors.blue,
+        ).toMarkerBitmap(context, logicalSize: const Size(40, 40)),
       );
 
       expect(descriptor, isA<BitmapDescriptor>());
@@ -536,18 +530,17 @@ void main() {
 
     testWidgets('toMapBitmap extension works', (tester) async {
       await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(body: SizedBox.shrink()),
-        ),
+        const MaterialApp(home: Scaffold(body: SizedBox.shrink())),
       );
 
       final context = tester.element(find.byType(Scaffold));
 
       final bitmap = await tester.runAsync(
-        () => Container(width: 40, height: 40, color: Colors.green).toMapBitmap(
-          context,
-          logicalSize: const Size(40, 40),
-        ),
+        () => Container(
+          width: 40,
+          height: 40,
+          color: Colors.green,
+        ).toMapBitmap(context, logicalSize: const Size(40, 40)),
       );
 
       expect(bitmap, isA<BytesMapBitmap>());
@@ -557,18 +550,17 @@ void main() {
 
     testWidgets('toMarkerIcon extension works', (tester) async {
       await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(body: SizedBox.shrink()),
-        ),
+        const MaterialApp(home: Scaffold(body: SizedBox.shrink())),
       );
 
       final context = tester.element(find.byType(Scaffold));
 
       final icon = await tester.runAsync(
-        () => Container(width: 40, height: 40, color: Colors.yellow).toMarkerIcon(
-          context,
-          logicalSize: const Size(40, 40),
-        ),
+        () => Container(
+          width: 40,
+          height: 40,
+          color: Colors.yellow,
+        ).toMarkerIcon(context, logicalSize: const Size(40, 40)),
       );
 
       expect(icon, isA<MarkerIcon>());
@@ -577,31 +569,37 @@ void main() {
 
     testWidgets('caching returns same icon for same key', (tester) async {
       await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(body: SizedBox.shrink()),
-        ),
+        const MaterialApp(home: Scaffold(body: SizedBox.shrink())),
       );
 
       final context = tester.element(find.byType(Scaffold));
       final renderer = MarkerIconRenderer();
       const cacheKey = 'test-cache-key';
 
-      final icon1 = await tester.runAsync(() => renderer.render(
-        Container(width: 30, height: 30, color: Colors.red),
-        context: context,
-        logicalSize: const Size(30, 30),
-        cacheKey: cacheKey,
-      ));
+      final icon1 = await tester.runAsync(
+        () => renderer.render(
+          Container(width: 30, height: 30, color: Colors.red),
+          context: context,
+          logicalSize: const Size(30, 30),
+          cacheKey: cacheKey,
+        ),
+      );
 
       expect(renderer.isCached(cacheKey), true);
       expect(renderer.cacheSize, 1);
 
-      final icon2 = await tester.runAsync(() => renderer.render(
-        Container(width: 30, height: 30, color: Colors.blue), // Different widget!
-        context: context,
-        logicalSize: const Size(30, 30),
-        cacheKey: cacheKey, // Same cache key
-      ));
+      final icon2 = await tester.runAsync(
+        () => renderer.render(
+          Container(
+            width: 30,
+            height: 30,
+            color: Colors.blue,
+          ), // Different widget!
+          context: context,
+          logicalSize: const Size(30, 30),
+          cacheKey: cacheKey, // Same cache key
+        ),
+      );
 
       // Should return cached version (icon1), not render the blue one
       expect(identical(icon1, icon2), true);
@@ -625,22 +623,27 @@ void main() {
       final renderer = MarkerIconRenderer();
 
       // Widget that uses theme
-      final icon = await tester.runAsync(() => renderer.render(
-        Builder(
-          builder: (ctx) => Container(
-            width: 50,
-            height: 50,
-            color: Theme.of(ctx).colorScheme.primary,
+      final icon = await tester.runAsync(
+        () => renderer.render(
+          Builder(
+            builder:
+                (ctx) => Container(
+                  width: 50,
+                  height: 50,
+                  color: Theme.of(ctx).colorScheme.primary,
+                ),
           ),
+          context: context,
+          logicalSize: const Size(50, 50),
         ),
-        context: context,
-        logicalSize: const Size(50, 50),
-      ));
+      );
 
       expect(icon!.bytes, isNotEmpty);
     });
 
-    testWidgets('render does not cache when enableCaching is false', (tester) async {
+    testWidgets('render does not cache when enableCaching is false', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         const MaterialApp(home: Scaffold(body: SizedBox.shrink())),
       );
@@ -649,26 +652,32 @@ void main() {
       final context = tester.element(find.byType(Scaffold));
       const cacheKey = 'no-cache';
 
-      final icon1 = await tester.runAsync(() => renderer.render(
-        const SizedBox(),
-        context: context,
-        logicalSize: const Size(20, 20),
-        cacheKey: cacheKey,
-      ));
+      final icon1 = await tester.runAsync(
+        () => renderer.render(
+          const SizedBox(),
+          context: context,
+          logicalSize: const Size(20, 20),
+          cacheKey: cacheKey,
+        ),
+      );
 
-      final icon2 = await tester.runAsync(() => renderer.render(
-        const SizedBox(),
-        context: context,
-        logicalSize: const Size(20, 20),
-        cacheKey: cacheKey,
-      ));
+      final icon2 = await tester.runAsync(
+        () => renderer.render(
+          const SizedBox(),
+          context: context,
+          logicalSize: const Size(20, 20),
+          cacheKey: cacheKey,
+        ),
+      );
 
       // Should not be cached → different instances
       expect(identical(icon1, icon2), isFalse);
       expect(renderer.cacheSize, 0);
     });
 
-    testWidgets('cache evicts least recently used by maxCacheEntries', (tester) async {
+    testWidgets('cache evicts least recently used by maxCacheEntries', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         const MaterialApp(home: Scaffold(body: SizedBox.shrink())),
       );
@@ -699,7 +708,9 @@ void main() {
       expect(renderer.isCached('c'), isTrue);
     });
 
-    testWidgets('concurrent renders with same cacheKey share the same result', (tester) async {
+    testWidgets('concurrent renders with same cacheKey share the same result', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         const MaterialApp(home: Scaffold(body: SizedBox.shrink())),
       );
@@ -732,7 +743,9 @@ void main() {
       expect(renderer.cacheSize, 1);
     });
 
-    testWidgets('oversized items are not cached when exceeding maxCacheBytes', (tester) async {
+    testWidgets('oversized items are not cached when exceeding maxCacheBytes', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         const MaterialApp(home: Scaffold(body: SizedBox.shrink())),
       );
@@ -743,12 +756,14 @@ void main() {
         maxCacheBytes: 1, // absurdly small - any icon will exceed this
       );
 
-      await tester.runAsync(() => renderer.render(
-        const SizedBox(),
-        context: context,
-        logicalSize: const Size(10, 10),
-        cacheKey: 'oversized',
-      ));
+      await tester.runAsync(
+        () => renderer.render(
+          const SizedBox(),
+          context: context,
+          logicalSize: const Size(10, 10),
+          cacheKey: 'oversized',
+        ),
+      );
 
       // Icon exceeds maxCacheBytes, so it should NOT be cached
       expect(renderer.cacheSize, 0);
@@ -756,7 +771,9 @@ void main() {
       expect(renderer.isCached('oversized'), isFalse);
     });
 
-    testWidgets('maxCacheBytes evicts older items to make room', (tester) async {
+    testWidgets('maxCacheBytes evicts older items to make room', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         const MaterialApp(home: Scaffold(body: SizedBox.shrink())),
       );
@@ -765,12 +782,14 @@ void main() {
 
       // First, render one icon to measure its size
       final measureRenderer = MarkerIconRenderer(maxCacheBytes: null);
-      final sampleIcon = await tester.runAsync(() => measureRenderer.render(
-        const SizedBox(),
-        context: context,
-        logicalSize: const Size(10, 10),
-        cacheKey: 'measure',
-      ));
+      final sampleIcon = await tester.runAsync(
+        () => measureRenderer.render(
+          const SizedBox(),
+          context: context,
+          logicalSize: const Size(10, 10),
+          cacheKey: 'measure',
+        ),
+      );
       final iconSize = sampleIcon!.sizeInBytes;
 
       // Now create renderer with maxCacheBytes that fits exactly 1 icon
@@ -779,22 +798,26 @@ void main() {
         maxCacheBytes: iconSize, // fits exactly 1 icon
       );
 
-      await tester.runAsync(() => renderer.render(
-        const SizedBox(),
-        context: context,
-        logicalSize: const Size(10, 10),
-        cacheKey: 'first',
-      ));
+      await tester.runAsync(
+        () => renderer.render(
+          const SizedBox(),
+          context: context,
+          logicalSize: const Size(10, 10),
+          cacheKey: 'first',
+        ),
+      );
 
       expect(renderer.cacheSize, 1);
       expect(renderer.isCached('first'), isTrue);
 
-      await tester.runAsync(() => renderer.render(
-        const SizedBox(),
-        context: context,
-        logicalSize: const Size(10, 10),
-        cacheKey: 'second',
-      ));
+      await tester.runAsync(
+        () => renderer.render(
+          const SizedBox(),
+          context: context,
+          logicalSize: const Size(10, 10),
+          cacheKey: 'second',
+        ),
+      );
 
       // Second icon should evict first to stay within memory limit
       expect(renderer.cacheSize, 1);
@@ -810,12 +833,14 @@ void main() {
       final context = tester.element(find.byType(Scaffold));
       final renderer = MarkerIconRenderer();
 
-      await tester.runAsync(() => renderer.render(
-        const SizedBox(),
-        context: context,
-        logicalSize: const Size(10, 10),
-        cacheKey: 'clear-test',
-      ));
+      await tester.runAsync(
+        () => renderer.render(
+          const SizedBox(),
+          context: context,
+          logicalSize: const Size(10, 10),
+          cacheKey: 'clear-test',
+        ),
+      );
 
       expect(renderer.cacheSize, 1);
       expect(renderer.cacheSizeInBytes, greaterThan(0));
@@ -878,4 +903,3 @@ void main() {
     });
   });
 }
-
