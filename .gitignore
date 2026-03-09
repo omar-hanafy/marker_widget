@@ -105,6 +105,7 @@ coverage/
 
 # Submodules
 !pubspec.lock
+example/pubspec.lock
 packages/**/pubspec.lock
 
 # Web related

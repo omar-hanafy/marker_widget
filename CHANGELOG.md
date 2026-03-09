@@ -3,6 +3,63 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-03-08
+
+### Breaking
+
+- Removed `MarkerIconScalingMode`.
+- Replaced the old flat scaling parameters with:
+  - `WidgetBitmapRenderOptions` for off-screen rendering
+  - `MapBitmapOptions` for map bitmap output
+- Updated `MarkerIconRenderer.render()` to accept `WidgetBitmapRenderOptions`.
+- Renamed `Widget.toMarkerBitmap()` to `Widget.toBitmapDescriptor()`.
+- Removed the top-level `widgetTo*` helpers in favor of widget extensions with
+  optional named `context`.
+- Removed `MarkerBuildOptions` and `AdvancedMarkerBuildOptions`. Marker builder
+  APIs now accept real upstream `Marker` and `AdvancedMarker` objects.
+- Updated widget extensions to use optional named `context`, `renderOptions`,
+  and `bitmapOptions`.
+- Replaced `MapBitmapOptions.renderedDpr()` with
+  `MapBitmapOptions.pixelPerfect()`.
+- Raised the minimum supported SDK versions to Flutter 3.41.4 and Dart 3.10.
+
+### Added
+
+- `MapBitmapOptions` and `WidgetBitmapRenderOptions` value objects.
+- `MapBitmapOptions.pixelPerfect()` for pixel-perfect display using the
+  rendered widget DPR.
+- `MarkerIcon.toGroundOverlayBitmap()`.
+- `MarkerIcon.toBitmapGlyph()`.
+- `MarkerIcon.toPinConfig()`.
+- `MarkerIcon.toMarker()` and `MarkerIcon.toAdvancedMarker()`.
+- `MarkerIcon.toAdvancedPinMarker()` for one-call widget-to-pin-marker flow.
+- Widget extension helpers:
+  - `toGroundOverlayBitmap()`
+  - `toBitmapGlyph()`
+  - `toPinConfig()`
+  - `toMarker()`
+  - `toAdvancedMarker()`
+  - `toAdvancedPinMarker()`
+- `buildClusterCacheKey()`.
+- `buildMarkerCacheKey(extra: ...)` for additional visual-state cache inputs.
+- `defaultMarkerIconRenderer` exposed for cache inspection, clearing, and
+  prewarming.
+- `Equatable` on all value objects for structural equality.
+- Curated re-exports for advanced marker types that are missing from
+  `google_maps_flutter`.
+
+### Changed
+
+- `MapBitmapScaling.none` is now supported through raw bitmap conversion.
+- `toGroundOverlayBitmap()` is a discoverability alias for the raw
+  `MapBitmapScaling.none` path.
+- Renderer context capture now includes `Localizations` and
+  `DefaultAssetBundle`, not just themes and `MediaQuery`.
+- Cache invalidation now blocks stale in-flight renders from repopulating cache
+  after `clearCache()` or `removeFromCache()`.
+- README and example app now demonstrate base `Marker` / `AdvancedMarker`
+  inputs, advanced marker pins, and ground overlays.
+
 ## [1.1.0] - 2025-12-04
 
 ### Added
