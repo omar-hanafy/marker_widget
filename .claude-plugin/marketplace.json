@@ -1,0 +1,21 @@
+{
+  "name": "marker-widget",
+  "owner": {
+    "name": "Omar Khaled Hanafy",
+    "url": "https://github.com/omar-hanafy"
+  },
+  "description": "Agent plugins for the marker_widget Flutter package (github.com/omar-hanafy/marker_widget).",
+  "plugins": [
+    {
+      "name": "marker-widget",
+      "source": "./plugins/marker-widget",
+      "description": "Skills and a read-only reviewer agent for building, tuning, troubleshooting, and migrating marker_widget usage in Flutter apps.",
+      "license": "MIT",
+      "keywords": [
+        "flutter",
+        "google-maps",
+        "marker"
+      ]
+    }
+  ]
+}

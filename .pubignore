@@ -1,0 +1,20 @@
+# NOTE: this file REPLACES the root .gitignore for `dart pub publish`, so it
+# must re-list the publish-relevant ignores in addition to the extra entries.
+
+# Carried over from .gitignore (publish-relevant subset)
+*.class
+*.log
+*.pyc
+*.swp
+*.iml
+build/
+coverage/
+pubspec.lock
+FOLLOWUP.md
+
+# Agent-assistant tooling: distributed from the Git repository, never in the
+# pub.dev archive (the hidden manifests it needs would be stripped anyway).
+plugins/
+tool/
+AGENTS.md
+CLAUDE.md

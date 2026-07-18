@@ -1,0 +1,20 @@
+{
+  "name": "marker-widget",
+  "interface": {
+    "displayName": "marker_widget plugins"
+  },
+  "plugins": [
+    {
+      "name": "marker-widget",
+      "source": {
+        "source": "local",
+        "path": "./plugins/marker-widget"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

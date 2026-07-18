@@ -1,0 +1,7 @@
+name: "using-positive"
+description: "The using-marker-widget skill should trigger and drive correct integration advice"
+prompt: "I have a Flutter app with google_maps_flutter showing a map of coffee shops. I want each shop to appear as a custom rounded card with the shop name, rendered from a Flutter widget instead of a PNG asset. The app has dark mode. How do I build these markers with the marker_widget package?"
+runs: 1
+max_turns: 8
+tools: [Read, Grep, Glob]
+grader: "using-grader"

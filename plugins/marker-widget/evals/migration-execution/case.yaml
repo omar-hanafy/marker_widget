@@ -1,0 +1,47 @@
+name: "migration-execution"
+description: "The v1-to-v2 migration skill should produce a correct behavior-preserving migration"
+prompt: |
+  I upgraded marker_widget from 1.1.0 to 2.0.0 and this file no longer compiles.
+  Migrate it to the 2.x API without changing behavior. Show the full migrated file.
+
+  ```dart
+  import 'package:flutter/material.dart';
+  import 'package:google_maps_flutter/google_maps_flutter.dart';
+  import 'package:marker_widget/marker_widget.dart';
+
+  class ShopMarkers {
+    ShopMarkers(this.renderer);
+
+    final MarkerIconRenderer renderer;
+
+    Future<BitmapDescriptor> shopIcon(BuildContext context, String id) {
+      return ShopPin(label: id).toMarkerBitmap(
+        context,
+        logicalSize: const Size(72, 72),
+        waitForImages: true,
+        cacheKey: 'shop-' + id,
+        scalingMode: MarkerIconScalingMode.imagePixelRatio,
+      );
+    }
+
+    Future<BitmapDescriptor> plainIcon() {
+      return widgetToMarkerBitmap(
+        const ShopPin(label: 'x'),
+        logicalSize: const Size(48, 48),
+      );
+    }
+
+    Future<MarkerIcon> preload(BuildContext context) {
+      return renderer.render(
+        const ShopPin(label: 'hq'),
+        context: context,
+        logicalSize: const Size(96, 96),
+        cacheKey: 'hq',
+      );
+    }
+  }
+  ```
+runs: 1
+max_turns: 8
+tools: [Read, Grep, Glob]
+grader: "migration-grader"
