@@ -1,0 +1,7 @@
+name: "negative-control"
+description: "marker-widget skills must not trigger on adjacent but unrelated Flutter work"
+prompt: "In my Flutter app I want to add a navigation drawer with the user's avatar at the top and menu entries for Home, Orders, and Settings. How should I structure this?"
+runs: 1
+max_turns: 6
+tools: [Read, Grep, Glob]
+grader: "negative-grader"

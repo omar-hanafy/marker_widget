@@ -1,0 +1,7 @@
+name: "troubleshooting-positive"
+description: "The troubleshooting skill should trigger and identify the async-image cause"
+prompt: "My Flutter app uses marker_widget to render driver avatars as map markers. The avatar comes from Image.network. On the map the markers show up as blank white circles where the photo should be, but the border and text render fine. It works in debug sometimes but release builds are always blank. What is wrong?"
+runs: 1
+max_turns: 8
+tools: [Read, Grep, Glob]
+grader: "troubleshooting-grader"

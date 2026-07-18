@@ -3,6 +3,30 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2026-07-18
+
+### Added
+
+- AI coding-assistant support, installable from the GitHub repository for both
+  Claude Code and OpenAI Codex (`plugins/marker-widget` plus repo marketplace
+  catalogs). Includes four package-specific skills (integration and sizing,
+  caching and performance tuning, symptom-based troubleshooting, and a guided
+  v1-to-v2 migration), a read-only marker_widget reviewer agent for Claude
+  Code, shared API references, and an evaluation suite. See "AI coding-assistant
+  support" in the README. The plugin tree is excluded from the pub.dev archive;
+  the Dart package itself is unchanged.
+- Repository maintainer guidance (`AGENTS.md`, imported by `CLAUDE.md`) and a
+  structural validator (`tool/validate_agent_plugin.dart`) wired into CI.
+
+### Changed
+
+- `dart pub publish` archive no longer contains leftover empty `lib/src/`
+  directories.
+- The pub.dev publish workflow now runs exclusively on release tags
+  (`workflow_dispatch` trigger removed).
+
+No runtime, API, or dependency changes.
+
 ## [2.0.0] - 2026-03-08
 
 ### Breaking

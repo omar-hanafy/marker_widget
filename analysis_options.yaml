@@ -31,6 +31,7 @@ linter:
 analyzer:
   # Keep analyzer from touching codegen / tool output
   exclude:
+    - "plugins/**" # agent-plugin tree: docs + migration fixtures (v1 API on purpose)
     - "**/*.g.dart"
     - "**/*.freezed.dart"
     - "**/*.gr.dart"

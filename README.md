@@ -4,6 +4,49 @@ Render Flutter widgets into Google Maps bitmaps, glyphs, markers, and ground ove
 
 `marker_widget` handles off-screen widget rendering, caching, and bitmap conversion so you can focus on map UI instead of `RenderView` plumbing.
 
+## AI coding-assistant support (agent plugin)
+
+Package-specific support for **Claude Code** and **OpenAI Codex** ships from this
+repository as an installable agent plugin: four skills (correct integration and
+sizing, cache/performance tuning, symptom-based troubleshooting, and a guided
+v1-to-v2 migration) plus a read-only reviewer agent for Claude Code. This is tooling
+for coding agents, not a runtime feature of the Dart package, and it is not part of
+the pub.dev archive.
+
+Claude Code (CLI or `/plugin` in a session):
+
+```bash
+claude plugin marketplace add omar-hanafy/marker_widget
+claude plugin install marker-widget@marker-widget
+```
+
+OpenAI Codex (CLI or `/plugins` in a session; supported in Codex CLI and ChatGPT
+desktop/web Work mode, not the IDE extension):
+
+```bash
+codex plugin marketplace add omar-hanafy/marker_widget
+codex plugin add marker-widget@marker-widget
+```
+
+Start a new agent session after installing (Codex requires it; it is good hygiene in
+Claude Code too). Then try:
+
+- "My marker_widget avatars from Image.network render as blank circles - fix it."
+- "Migrate this app from marker_widget 1.1.0 to 2.0.0."
+- Explicit invocation: `/marker-widget:troubleshooting-marker-widget` in Claude Code,
+  or `$troubleshooting-marker-widget` in Codex.
+
+The plugin contains instructions and reference documents only: no hooks, no MCP
+servers, no executable scripts, no network access; the reviewer agent is restricted
+to read-only tools. Compatibility: marker_widget 2.x (migration skill covers 1.x to
+2.x); verified with Claude Code 2.1.x and codex-cli 0.144.x. Update with
+`claude plugin update marker-widget` / `codex plugin marketplace upgrade
+marker-widget`; uninstall with `claude plugin uninstall marker-widget` /
+`codex plugin remove marker-widget@marker-widget`.
+
+Full documentation (all capabilities, example prompts, Codex reviewer-subagent
+recipe, maintainer guide): [`plugins/marker-widget/README.md`](plugins/marker-widget/README.md).
+
 ## Features
 
 - Render any widget to `BitmapDescriptor`, `BytesMapBitmap`, or cacheable `MarkerIcon`
