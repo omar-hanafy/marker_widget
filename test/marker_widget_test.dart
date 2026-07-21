@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -1118,6 +1119,67 @@ void main() {
       expect(renderer.cacheSize, 1);
       expect(renderer.isCached('first'), isFalse);
       expect(renderer.isCached('second'), isTrue);
+    });
+
+    testWidgets('sanitizes screen geometry out of the rendered MediaQuery', (
+      tester,
+    ) async {
+      const paddedData = MediaQueryData(
+        size: Size(400, 800),
+        padding: EdgeInsets.only(top: 47, bottom: 34),
+        viewPadding: EdgeInsets.only(top: 47, bottom: 34),
+        viewInsets: EdgeInsets.only(bottom: 250),
+        systemGestureInsets: EdgeInsets.all(20),
+        textScaler: TextScaler.linear(1.5),
+        displayFeatures: [
+          ui.DisplayFeature(
+            bounds: Rect.fromLTWH(195, 0, 10, 800),
+            type: ui.DisplayFeatureType.hinge,
+            state: ui.DisplayFeatureState.postureFlat,
+          ),
+        ],
+      );
+
+      final marker = Container(key: UniqueKey());
+      await tester.pumpWidget(
+        MediaQuery(
+          data: paddedData,
+          child: Directionality(
+            textDirection: TextDirection.ltr,
+            child: marker,
+          ),
+        ),
+      );
+
+      final context = tester.element(find.byWidget(marker));
+      final renderer = MarkerIconRenderer(enableCaching: false);
+
+      MediaQueryData? captured;
+      await tester.runAsync(
+        () => renderer.render(
+          Builder(
+            builder: (ctx) {
+              captured = MediaQuery.of(ctx);
+              return const SizedBox.expand();
+            },
+          ),
+          context: context,
+          options: const WidgetBitmapRenderOptions(
+            logicalSize: Size(40, 40),
+            pixelRatio: 2.0,
+          ),
+        ),
+      );
+
+      expect(captured, isNotNull);
+      expect(captured!.size, const Size(40, 40));
+      expect(captured!.devicePixelRatio, 2.0);
+      expect(captured!.padding, EdgeInsets.zero);
+      expect(captured!.viewPadding, EdgeInsets.zero);
+      expect(captured!.viewInsets, EdgeInsets.zero);
+      expect(captured!.systemGestureInsets, EdgeInsets.zero);
+      expect(captured!.displayFeatures, isEmpty);
+      expect(captured!.textScaler, const TextScaler.linear(1.5));
     });
 
     testWidgets('captures theme from the source context', (tester) async {

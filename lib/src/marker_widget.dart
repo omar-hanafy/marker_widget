@@ -631,9 +631,17 @@ class MarkerIconRenderer {
         ? (MediaQuery.maybeOf(context) ?? MediaQueryData.fromView(view))
         : MediaQueryData.fromView(view);
 
+    // Screen obstructions (notches, keyboards, hinges) belong to the source
+    // screen, not to an off-screen marker; accessibility data (text scaling,
+    // brightness, bold text) is kept.
     final MediaQueryData mediaQuery = baseMediaQuery.copyWith(
       size: logicalSize,
       devicePixelRatio: devicePixelRatio,
+      padding: EdgeInsets.zero,
+      viewPadding: EdgeInsets.zero,
+      viewInsets: EdgeInsets.zero,
+      systemGestureInsets: EdgeInsets.zero,
+      displayFeatures: const <ui.DisplayFeature>[],
     );
 
     final TextDirection textDirection = context != null
