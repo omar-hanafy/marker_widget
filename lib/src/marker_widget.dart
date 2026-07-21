@@ -117,6 +117,81 @@ class WidgetBitmapRenderOptions extends Equatable {
   ];
 }
 
+/// A structured, collision-safe cache key for rendered marker icons.
+///
+/// Combines the stable identity of a marker with the visual inputs that
+/// change its rendered pixels. The renderer already appends the resolved
+/// logical size and pixel ratio to every cache entry, so they are not part
+/// of this key.
+///
+/// [extra] carries any additional state that changes the rendered output
+/// (selection, status, avatar revision, ...). It is compared with `==`, so
+/// use a value with structural equality - a record such as
+/// `(selected: true, badge: 3)` works well. Plain lists and maps compare by
+/// identity, which causes safe but wasteful cache misses.
+///
+/// Any object with value semantics works as a
+/// `MarkerRenderOptions.cacheKey`; this class is the package-blessed
+/// convenience, not a requirement.
+@immutable
+final class MarkerCacheKey {
+  /// Creates a cache key for a marker identified by [id].
+  const MarkerCacheKey(this.id, {this.brightness, this.locale, this.extra})
+    : _kind = 'marker';
+
+  /// Creates a cache key for a cluster badge showing [count] items.
+  ///
+  /// Cluster keys never collide with plain keys built from the same value:
+  /// `MarkerCacheKey.cluster(count: 5)` and `MarkerCacheKey(5)` are
+  /// distinct.
+  const MarkerCacheKey.cluster({
+    required int count,
+    this.brightness,
+    this.locale,
+    this.extra,
+  }) : id = count,
+       _kind = 'cluster';
+
+  /// The stable identity of the marker, or the cluster count.
+  final Object id;
+
+  /// The theme brightness the icon is rendered for.
+  final Brightness? brightness;
+
+  /// The locale the icon is rendered for.
+  final Locale? locale;
+
+  /// Additional visual state, compared with `==`.
+  final Object? extra;
+
+  final String _kind;
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) {
+      return true;
+    }
+    return other is MarkerCacheKey &&
+        _kind == other._kind &&
+        id == other.id &&
+        brightness == other.brightness &&
+        locale == other.locale &&
+        extra == other.extra;
+  }
+
+  @override
+  int get hashCode => Object.hash(_kind, id, brightness, locale, extra);
+
+  @override
+  String toString() {
+    final String name = _kind == 'cluster'
+        ? 'MarkerCacheKey.cluster'
+        : 'MarkerCacheKey';
+    return '$name($id, brightness: $brightness, locale: $locale, '
+        'extra: $extra)';
+  }
+}
+
 /// Value object carrying everything about a rendered marker icon.
 ///
 /// This is the cacheable unit. Store instances of this class in your own
@@ -1214,45 +1289,3 @@ extension WidgetMarkerExtension on Widget {
   }
 }
 
-/// Builds a marker cache key that captures the common visual inputs.
-///
-/// Use [extra] for any additional state that changes the rendered output, such
-/// as selection, status, or avatar version.
-String buildMarkerCacheKey({
-  required Object id,
-  required Size logicalSize,
-  required double pixelRatio,
-  ui.Brightness? brightness,
-  Locale? locale,
-  Object? extra,
-}) {
-  final String brightnessPart = brightness?.name ?? 'none';
-  final String localePart = locale?.toLanguageTag() ?? 'xx';
-  final String extraPart = extra?.toString() ?? 'none';
-  return 'id=$id'
-      '|size=${logicalSize.width}x${logicalSize.height}'
-      '|dpr=$pixelRatio'
-      '|brightness=$brightnessPart'
-      '|locale=$localePart'
-      '|extra=$extraPart';
-}
-
-/// Builds a cache key for cluster markers or badges.
-String buildClusterCacheKey({
-  required int count,
-  required Size logicalSize,
-  required double pixelRatio,
-  ui.Brightness? brightness,
-  Locale? locale,
-  Object? extra,
-}) {
-  final String brightnessPart = brightness?.name ?? 'none';
-  final String localePart = locale?.toLanguageTag() ?? 'xx';
-  final String extraPart = extra?.toString() ?? 'none';
-  return 'count=$count'
-      '|size=${logicalSize.width}x${logicalSize.height}'
-      '|dpr=$pixelRatio'
-      '|brightness=$brightnessPart'
-      '|locale=$localePart'
-      '|extra=$extraPart';
-}

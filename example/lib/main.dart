@@ -80,7 +80,6 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
     });
 
     final ThemeData theme = Theme.of(context);
-    final double dpr = MediaQuery.devicePixelRatioOf(context);
 
     try {
       switch (_mode) {
@@ -103,10 +102,8 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
                 ),
                 renderOptions: WidgetBitmapRenderOptions(
                   logicalSize: const Size(104, 104),
-                  cacheKey: buildMarkerCacheKey(
-                    id: 'classic-marker',
-                    logicalSize: const Size(104, 104),
-                    pixelRatio: dpr,
+                  cacheKey: MarkerCacheKey(
+                    'classic-marker',
                     brightness: theme.brightness,
                     locale: Localizations.maybeLocaleOf(context),
                   ),
@@ -159,10 +156,8 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
                 borderColor: theme.colorScheme.primary,
                 renderOptions: WidgetBitmapRenderOptions(
                   logicalSize: const Size(28, 28),
-                  cacheKey: buildMarkerCacheKey(
-                    id: 'advanced-pin',
-                    logicalSize: const Size(28, 28),
-                    pixelRatio: dpr,
+                  cacheKey: MarkerCacheKey(
+                    'advanced-pin',
                     brightness: theme.brightness,
                     locale: Localizations.maybeLocaleOf(context),
                   ),
@@ -189,10 +184,8 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
                 context: context,
                 renderOptions: WidgetBitmapRenderOptions(
                   logicalSize: const Size(180, 120),
-                  cacheKey: buildMarkerCacheKey(
-                    id: 'ground-overlay',
-                    logicalSize: const Size(180, 120),
-                    pixelRatio: dpr,
+                  cacheKey: MarkerCacheKey(
+                    'ground-overlay',
                     brightness: theme.brightness,
                     locale: Localizations.maybeLocaleOf(context),
                   ),

@@ -1592,52 +1592,87 @@ void main() {
     });
   });
 
-  group('Cache key helpers', () {
-    test('buildMarkerCacheKey stays stable for equal inputs', () {
-      final key1 = buildMarkerCacheKey(
-        id: 'user-123',
-        logicalSize: const Size(80, 80),
-        pixelRatio: 2.0,
+  group('MarkerCacheKey', () {
+    test('equal inputs produce equal keys and hashes', () {
+      const key1 = MarkerCacheKey(
+        'user-123',
         brightness: Brightness.light,
-        locale: const Locale('en', 'US'),
-        extra: 'selected',
+        locale: Locale('en', 'US'),
+        extra: (selected: true, badge: 3),
       );
-
-      final key2 = buildMarkerCacheKey(
-        id: 'user-123',
-        logicalSize: const Size(80, 80),
-        pixelRatio: 2.0,
+      const key2 = MarkerCacheKey(
+        'user-123',
         brightness: Brightness.light,
-        locale: const Locale('en', 'US'),
-        extra: 'selected',
+        locale: Locale('en', 'US'),
+        extra: (selected: true, badge: 3),
       );
 
       expect(key1, key2);
-      expect(key1, contains('extra=selected'));
+      expect(key1.hashCode, key2.hashCode);
     });
 
-    test('buildClusterCacheKey differentiates key inputs', () {
-      final key1 = buildClusterCacheKey(
-        count: 12,
-        logicalSize: const Size(48, 48),
-        pixelRatio: 2.0,
-        brightness: Brightness.dark,
-        locale: const Locale('en'),
-        extra: 'a',
-      );
+    test('any differing field produces a different key', () {
+      const base = MarkerCacheKey('id', brightness: Brightness.light);
 
-      final key2 = buildClusterCacheKey(
-        count: 15,
-        logicalSize: const Size(48, 48),
-        pixelRatio: 2.0,
-        brightness: Brightness.dark,
-        locale: const Locale('en'),
-        extra: 'a',
+      expect(
+        base,
+        isNot(const MarkerCacheKey('other', brightness: Brightness.light)),
       );
+      expect(base, isNot(const MarkerCacheKey('id')));
+      expect(base, isNot(const MarkerCacheKey('id', brightness: Brightness.dark)));
+      expect(
+        base,
+        isNot(
+          const MarkerCacheKey(
+            'id',
+            brightness: Brightness.light,
+            locale: Locale('ar'),
+          ),
+        ),
+      );
+      expect(
+        base,
+        isNot(
+          const MarkerCacheKey(
+            'id',
+            brightness: Brightness.light,
+            extra: 'selected',
+          ),
+        ),
+      );
+    });
+
+    test('extra values are compared structurally, not by string form', () {
+      // The removed v2 string builders collapsed objects with the default
+      // toString into identical "Instance of 'Foo'" fragments; value
+      // equality must keep distinct states distinct.
+      const key1 = MarkerCacheKey('id', extra: (status: 'busy'));
+      const key2 = MarkerCacheKey('id', extra: (status: 'free'));
 
       expect(key1, isNot(key2));
-      expect(key1, contains('count=12'));
-      expect(key1, contains('extra=a'));
+      expect(key1, const MarkerCacheKey('id', extra: (status: 'busy')));
+    });
+
+    test('cluster keys never collide with plain keys of the same value', () {
+      const cluster = MarkerCacheKey.cluster(count: 5);
+      const plain = MarkerCacheKey(5);
+
+      expect(cluster, isNot(plain));
+      expect(cluster, const MarkerCacheKey.cluster(count: 5));
+      expect(cluster, isNot(const MarkerCacheKey.cluster(count: 6)));
+    });
+
+    test('describes itself in toString', () {
+      expect(
+        const MarkerCacheKey('id', brightness: Brightness.dark).toString(),
+        'MarkerCacheKey(id, brightness: Brightness.dark, locale: null, '
+        'extra: null)',
+      );
+      expect(
+        const MarkerCacheKey.cluster(count: 12).toString(),
+        'MarkerCacheKey.cluster(12, brightness: null, locale: null, '
+        'extra: null)',
+      );
     });
   });
 
