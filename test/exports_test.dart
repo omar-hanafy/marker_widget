@@ -53,4 +53,34 @@ void main() {
 
     expect(overlay.groundOverlayId, const GroundOverlayId('overlay'));
   });
+
+  test('re-exports the advanced marker and glyph types', () {
+    final icon = MarkerIcon(
+      bytes: onePixel(),
+      logicalSize: const Size(1, 1),
+      pixelRatio: 1.0,
+    );
+
+    final AdvancedMarker marker = icon.toAdvancedPinMarker(
+      base: AdvancedMarker(
+        markerId: const MarkerId('exported-advanced'),
+        position: const LatLng(1, 2),
+        collisionBehavior:
+            MarkerCollisionBehavior.optionalAndHidesLowerPriority,
+      ),
+      backgroundColor: const Color(0xFF112233),
+    );
+    expect(marker.icon, isA<PinConfig>());
+
+    final AdvancedMarkerGlyph bitmapGlyph = icon.toBitmapGlyph();
+    expect(bitmapGlyph, isA<BitmapGlyph>());
+
+    const AdvancedMarkerGlyph circle = CircleGlyph(color: Color(0xFF445566));
+    const AdvancedMarkerGlyph text = TextGlyph(
+      text: 'A',
+      textColor: Color(0xFF000000),
+    );
+    expect(circle, isA<CircleGlyph>());
+    expect(text, isA<TextGlyph>());
+  });
 }

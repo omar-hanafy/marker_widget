@@ -227,6 +227,66 @@ class _ThemeColorBox extends StatelessWidget {
   }
 }
 
+class _ThrowingBuildWidget extends StatelessWidget {
+  const _ThrowingBuildWidget();
+
+  @override
+  Widget build(BuildContext context) => throw StateError('build exploded');
+}
+
+class _ThrowingLayoutWidget extends LeafRenderObjectWidget {
+  const _ThrowingLayoutWidget();
+
+  @override
+  RenderObject createRenderObject(BuildContext context) => _ThrowingLayoutBox();
+}
+
+class _ThrowingLayoutBox extends RenderBox {
+  @override
+  void performLayout() => throw StateError('layout exploded');
+}
+
+class _ThrowingPainter extends CustomPainter {
+  const _ThrowingPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) => throw StateError('paint exploded');
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _ThrowingDisposeProbe extends StatefulWidget {
+  const _ThrowingDisposeProbe();
+
+  @override
+  State<_ThrowingDisposeProbe> createState() => _ThrowingDisposeProbeState();
+}
+
+class _ThrowingDisposeProbeState extends State<_ThrowingDisposeProbe> {
+  @override
+  void dispose() {
+    super.dispose();
+    throw StateError('dispose exploded');
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      const ColoredBox(color: Color(0xFF0000FF));
+}
+
+class _LocaleRecorder extends StatelessWidget {
+  const _LocaleRecorder({required this.onLocale});
+
+  final ValueChanged<Locale?> onLocale;
+
+  @override
+  Widget build(BuildContext context) {
+    onLocale(Localizations.maybeLocaleOf(context));
+    return const ColoredBox(color: Color(0xFFFF00FF));
+  }
+}
+
 Future<ui.Image> _solidImage(Color color, {int size = 8}) async {
   final ui.PictureRecorder recorder = ui.PictureRecorder();
   final Canvas canvas = Canvas(recorder);
@@ -1749,9 +1809,12 @@ void main() {
       final icon = await tester.runAsync(
         () => renderer.render(
           Builder(
+            // The detached tree deliberately contains no Localizations scope
+            // (installing one reports the locale engine-wide); direction is
+            // captured separately and localized values are passed in.
             builder: (context) => ColoredBox(
               color:
-                  Localizations.localeOf(context) == const Locale('ar') &&
+                  Localizations.maybeLocaleOf(context) == null &&
                       Directionality.of(context) == TextDirection.rtl
                   ? Colors.red
                   : Colors.blue,
@@ -2991,6 +3054,668 @@ void main() {
       expect(marker, isA<AdvancedMarker>());
       expect(marker!.markerId, const MarkerId('top-level-pin'));
       expect(marker.icon, isA<PinConfig>());
+    });
+  });
+
+  group('fail-fast validation on widget extensions', () {
+    testWidgets('toMapBitmap rejects invalid bitmap options before rendering', (
+      tester,
+    ) async {
+      await tester.pumpWidget(const SizedBox.shrink());
+
+      var prepareRan = false;
+      Object? error;
+      final renderer = MarkerIconRenderer();
+
+      const SizedBox()
+          .toMapBitmap(
+            renderer: renderer,
+            renderOptions: MarkerRenderOptions(
+              logicalSize: const Size(8, 8),
+              pixelRatio: 1,
+              cacheKey: 'fail-fast-bitmap',
+              prepare: () async => prepareRan = true,
+            ),
+            bitmapOptions: const MapBitmapOptions(
+              bitmapScaling: MapBitmapScaling.none,
+              width: 24,
+            ),
+          )
+          .then<void>((_) {}, onError: (Object e) => error = e);
+      await tester.pump();
+
+      expect(prepareRan, isFalse);
+      expect(error, isA<StateError>());
+      expect(renderer.cacheSize, 0);
+      expect(renderer.isCached('fail-fast-bitmap'), isFalse);
+    });
+
+    testWidgets('widget toMarker rejects an AdvancedMarker base '
+        'before rendering', (tester) async {
+      await tester.pumpWidget(const SizedBox.shrink());
+
+      var prepareRan = false;
+      Object? error;
+      final renderer = MarkerIconRenderer();
+
+      const SizedBox()
+          .toMarker(
+            base: AdvancedMarker(
+              markerId: const MarkerId('fail-fast-advanced'),
+              position: const LatLng(1, 2),
+            ),
+            renderer: renderer,
+            renderOptions: MarkerRenderOptions(
+              logicalSize: const Size(8, 8),
+              pixelRatio: 1,
+              cacheKey: 'fail-fast-advanced',
+              prepare: () async => prepareRan = true,
+            ),
+          )
+          .then<void>((_) {}, onError: (Object e) => error = e);
+      await tester.pump();
+
+      expect(prepareRan, isFalse);
+      expect(error, isA<ArgumentError>());
+      expect(renderer.isCached('fail-fast-advanced'), isFalse);
+    });
+
+    testWidgets('toPinConfig rejects invalid bitmap options before rendering', (
+      tester,
+    ) async {
+      await tester.pumpWidget(const SizedBox.shrink());
+
+      var prepareRan = false;
+      Object? error;
+
+      const SizedBox()
+          .toPinConfig(
+            renderer: MarkerIconRenderer(),
+            renderOptions: MarkerRenderOptions(
+              logicalSize: const Size(8, 8),
+              pixelRatio: 1,
+              prepare: () async => prepareRan = true,
+            ),
+            bitmapOptions: const MapBitmapOptions(
+              bitmapScaling: MapBitmapScaling.none,
+              imagePixelRatio: 2,
+            ),
+          )
+          .then<void>((_) {}, onError: (Object e) => error = e);
+      await tester.pump();
+
+      expect(prepareRan, isFalse);
+      expect(error, isA<StateError>());
+    });
+
+    testWidgets('toAdvancedMarker rejects invalid bitmap options '
+        'before rendering', (tester) async {
+      await tester.pumpWidget(const SizedBox.shrink());
+
+      var prepareRan = false;
+      Object? error;
+
+      const SizedBox()
+          .toAdvancedMarker(
+            base: AdvancedMarker(
+              markerId: const MarkerId('fail-fast-options'),
+              position: const LatLng(1, 2),
+            ),
+            renderer: MarkerIconRenderer(),
+            renderOptions: MarkerRenderOptions(
+              logicalSize: const Size(8, 8),
+              pixelRatio: 1,
+              prepare: () async => prepareRan = true,
+            ),
+            bitmapOptions: const MapBitmapOptions(width: double.nan),
+          )
+          .then<void>((_) {}, onError: (Object e) => error = e);
+      await tester.pump();
+
+      expect(prepareRan, isFalse);
+      expect(error, isA<StateError>());
+    });
+  });
+
+  group('MarkerRenderException', () {
+    testWidgets('a widget that throws in build fails the render '
+        'and still unmounts', (tester) async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      final renderer = MarkerIconRenderer();
+
+      await tester.runAsync(() async {
+        var disposed = false;
+        final Future<MarkerIcon> render = renderer.render(
+          Column(
+            children: [
+              _LifecycleProbe(onDispose: () => disposed = true),
+              const _ThrowingBuildWidget(),
+            ],
+          ),
+          options: MarkerRenderOptions(
+            logicalSize: const Size(16, 16),
+            pixelRatio: 1,
+            cacheKey: 'boom-build',
+          ),
+        );
+
+        await expectLater(
+          render,
+          throwsA(
+            isA<MarkerRenderException>()
+                .having((e) => e.phase, 'phase', MarkerRenderPhase.build)
+                .having((e) => e.cause, 'cause', isA<StateError>()),
+          ),
+        );
+        expect(disposed, isTrue);
+        expect(renderer.isCached('boom-build'), isFalse);
+
+        final MarkerIcon ok = await renderer.render(
+          const ColoredBox(color: Colors.red),
+          options: MarkerRenderOptions(
+            logicalSize: const Size(8, 8),
+            pixelRatio: 1,
+          ),
+        );
+        expect(ok.bytes, isNotEmpty);
+      });
+    });
+
+    testWidgets('a render object that throws in performLayout fails '
+        'the render', (tester) async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      final renderer = MarkerIconRenderer();
+
+      await tester.runAsync(() async {
+        await expectLater(
+          renderer.render(
+            const _ThrowingLayoutWidget(),
+            options: MarkerRenderOptions(
+              logicalSize: const Size(16, 16),
+              pixelRatio: 1,
+            ),
+          ),
+          throwsA(
+            isA<MarkerRenderException>().having(
+              (e) => e.phase,
+              'phase',
+              MarkerRenderPhase.layout,
+            ),
+          ),
+        );
+      });
+    });
+
+    testWidgets('a painter that throws in paint fails the render', (
+      tester,
+    ) async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      final renderer = MarkerIconRenderer();
+
+      await tester.runAsync(() async {
+        await expectLater(
+          renderer.render(
+            const CustomPaint(painter: _ThrowingPainter()),
+            options: MarkerRenderOptions(
+              logicalSize: const Size(16, 16),
+              pixelRatio: 1,
+            ),
+          ),
+          throwsA(
+            isA<MarkerRenderException>().having(
+              (e) => e.phase,
+              'phase',
+              MarkerRenderPhase.paint,
+            ),
+          ),
+        );
+      });
+    });
+
+    testWidgets('restores FlutterError.onError after failed and successful '
+        'renders', (tester) async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      final renderer = MarkerIconRenderer();
+      final FlutterExceptionHandler? before = FlutterError.onError;
+
+      await tester.runAsync(() async {
+        await expectLater(
+          renderer.render(
+            const _ThrowingBuildWidget(),
+            options: MarkerRenderOptions(
+              logicalSize: const Size(8, 8),
+              pixelRatio: 1,
+            ),
+          ),
+          throwsA(isA<MarkerRenderException>()),
+        );
+        expect(identical(FlutterError.onError, before), isTrue);
+
+        await renderer.render(
+          const ColoredBox(color: Colors.green),
+          options: MarkerRenderOptions(
+            logicalSize: const Size(8, 8),
+            pixelRatio: 1,
+          ),
+        );
+        expect(identical(FlutterError.onError, before), isTrue);
+      });
+    });
+
+    testWidgets('a throwing State.dispose does not fail a successful render', (
+      tester,
+    ) async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      final renderer = MarkerIconRenderer();
+
+      await tester.runAsync(() async {
+        final reported = <FlutterErrorDetails>[];
+        final FlutterExceptionHandler? previous = FlutterError.onError;
+        FlutterError.onError = reported.add;
+        try {
+          final MarkerIcon icon = await renderer.render(
+            const _ThrowingDisposeProbe(),
+            options: MarkerRenderOptions(
+              logicalSize: const Size(8, 8),
+              pixelRatio: 1,
+            ),
+          );
+          expect(icon.bytes, isNotEmpty);
+        } finally {
+          FlutterError.onError = previous;
+        }
+        expect(
+          reported.map((d) => d.exception.toString()),
+          anyElement(contains('dispose exploded')),
+        );
+      });
+    });
+
+    testWidgets('a throwing State.dispose does not mask the primary '
+        'build error', (tester) async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      final renderer = MarkerIconRenderer();
+
+      await tester.runAsync(() async {
+        final FlutterExceptionHandler? previous = FlutterError.onError;
+        FlutterError.onError = (FlutterErrorDetails details) {};
+        try {
+          await expectLater(
+            renderer.render(
+              const Column(
+                children: [_ThrowingDisposeProbe(), _ThrowingBuildWidget()],
+              ),
+              options: MarkerRenderOptions(
+                logicalSize: const Size(16, 16),
+                pixelRatio: 1,
+              ),
+            ),
+            throwsA(
+              isA<MarkerRenderException>().having(
+                (e) => e.phase,
+                'phase',
+                MarkerRenderPhase.build,
+              ),
+            ),
+          );
+        } finally {
+          FlutterError.onError = previous;
+        }
+      });
+    });
+  });
+
+  group('detached tree localization', () {
+    testWidgets('does not install the captured locale as an app '
+        'Localizations scope', (tester) async {
+      late BuildContext capturedContext;
+      await tester.pumpWidget(
+        Localizations(
+          locale: const Locale('ar'),
+          delegates: const [DefaultWidgetsLocalizations.delegate],
+          child: Builder(
+            builder: (context) {
+              capturedContext = context;
+              return const SizedBox.shrink();
+            },
+          ),
+        ),
+      );
+      expect(Localizations.maybeLocaleOf(capturedContext), const Locale('ar'));
+
+      final renderer = MarkerIconRenderer(enableCaching: false);
+      Locale? seenInsideMarker = const Locale('xx');
+
+      await tester.runAsync(() async {
+        await renderer.render(
+          _LocaleRecorder(onLocale: (locale) => seenInsideMarker = locale),
+          context: capturedContext,
+          options: MarkerRenderOptions(
+            logicalSize: const Size(8, 8),
+            pixelRatio: 1,
+          ),
+        );
+      });
+
+      expect(seenInsideMarker, isNull);
+    });
+  });
+
+  group('glyph and pin descriptor identity', () {
+    MarkerIcon buildIcon() => MarkerIcon(
+      bytes: _onePixelPng(),
+      logicalSize: const Size(1, 1),
+      pixelRatio: 1.0,
+    );
+
+    test('toBitmapGlyph returns the identical glyph for equal options', () {
+      final icon = buildIcon();
+
+      final BitmapGlyph first = icon.toBitmapGlyph();
+      final BitmapGlyph second = icon.toBitmapGlyph();
+      expect(identical(first, second), isTrue);
+
+      final BitmapGlyph sized = icon.toBitmapGlyph(
+        options: const MapBitmapOptions(width: 24),
+      );
+      expect(identical(first, sized), isFalse);
+      expect(
+        identical(
+          sized,
+          icon.toBitmapGlyph(options: const MapBitmapOptions(width: 24)),
+        ),
+        isTrue,
+      );
+    });
+
+    test('toPinConfig returns the identical pin for equal arguments', () {
+      final icon = buildIcon();
+
+      final PinConfig first = icon.toPinConfig(
+        backgroundColor: const Color(0xFF112233),
+        borderColor: const Color(0xFF445566),
+      );
+      final PinConfig second = icon.toPinConfig(
+        backgroundColor: const Color(0xFF112233),
+        borderColor: const Color(0xFF445566),
+      );
+      expect(identical(first, second), isTrue);
+
+      final PinConfig recolored = icon.toPinConfig(
+        backgroundColor: const Color(0xFF000000),
+        borderColor: const Color(0xFF445566),
+      );
+      expect(identical(first, recolored), isFalse);
+    });
+
+    test('advanced pin markers rebuilt from one icon stay equal', () {
+      final icon = buildIcon();
+      final base = AdvancedMarker(
+        markerId: const MarkerId('stable-pin'),
+        position: const LatLng(3, 4),
+      );
+
+      final AdvancedMarker first = icon.toAdvancedPinMarker(
+        base: base,
+        backgroundColor: const Color(0xFF112233),
+      );
+      final AdvancedMarker second = icon.toAdvancedPinMarker(
+        base: base,
+        backgroundColor: const Color(0xFF112233),
+      );
+
+      expect(first == second, isTrue);
+    });
+  });
+
+  group('imageLoadTimeout', () {
+    test('rejects a non-positive timeout', () {
+      expect(
+        () => MarkerIconRenderer(imageLoadTimeout: Duration.zero),
+        throwsArgumentError,
+      );
+      expect(
+        () => MarkerIconRenderer(imageLoadTimeout: const Duration(seconds: -1)),
+        throwsArgumentError,
+      );
+      expect(
+        MarkerIconRenderer(imageLoadTimeout: null).imageLoadTimeout,
+        isNull,
+      );
+    });
+
+    testWidgets('fails a render whose image never decodes within the '
+        'timeout and releases the image permit', (tester) async {
+      await tester.pumpWidget(const SizedBox.shrink());
+
+      final renderer = MarkerIconRenderer(
+        enableCaching: false,
+        maxConcurrentImageLoads: 1,
+        imageLoadTimeout: const Duration(milliseconds: 200),
+      );
+
+      await tester.runAsync(() async {
+        final gate = Completer<ui.Image>();
+        final stalled = _GatedImageProvider(gate);
+
+        await expectLater(
+          renderer
+              .render(
+                Image(image: stalled),
+                options: MarkerRenderOptions(
+                  logicalSize: const Size(16, 16),
+                  pixelRatio: 1,
+                  imageDependencies: <MarkerImageDependency>[
+                    MarkerImageDependency(stalled),
+                  ],
+                ),
+              )
+              .timeout(const Duration(seconds: 5)),
+          throwsA(
+            isA<MarkerImageLoadException>().having(
+              (e) => e.cause,
+              'cause',
+              isA<TimeoutException>(),
+            ),
+          ),
+        );
+
+        final healthy = MemoryImage(_onePixelPng());
+        final MarkerIcon icon = await renderer
+            .render(
+              Image(image: healthy),
+              options: MarkerRenderOptions(
+                logicalSize: const Size(16, 16),
+                pixelRatio: 1,
+                imageDependencies: <MarkerImageDependency>[
+                  MarkerImageDependency(healthy),
+                ],
+              ),
+            )
+            .timeout(const Duration(seconds: 5));
+        expect(icon.bytes, isNotEmpty);
+      });
+    });
+  });
+
+  group('cache API contracts', () {
+    Future<MarkerIcon> renderKeyed(
+      WidgetTester tester,
+      MarkerIconRenderer renderer,
+      Object key, {
+      double side = 16,
+    }) async {
+      final icon = await tester.runAsync(
+        () => renderer.render(
+          const ColoredBox(color: Colors.orange),
+          options: MarkerRenderOptions(
+            logicalSize: Size(side, side),
+            pixelRatio: 1,
+            cacheKey: key,
+          ),
+        ),
+      );
+      return icon!;
+    }
+
+    testWidgets('removeFromCache removes every size and DPR variant', (
+      tester,
+    ) async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      final renderer = MarkerIconRenderer();
+
+      await renderKeyed(tester, renderer, 'multi', side: 16);
+      await renderKeyed(tester, renderer, 'multi', side: 24);
+      expect(renderer.cacheSize, 2);
+
+      renderer.removeFromCache('multi');
+
+      expect(renderer.cacheSize, 0);
+      expect(renderer.isCached('multi'), isFalse);
+      expect(renderer.peekCache('multi'), isNull);
+    });
+
+    testWidgets('peekCache returns the most recently used variant without '
+        'bumping LRU order', (tester) async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      final renderer = MarkerIconRenderer(maxCacheEntries: 2);
+
+      await renderKeyed(tester, renderer, 'k1');
+      await renderKeyed(tester, renderer, 'k2');
+
+      final MarkerIcon? peeked = renderer.peekCache('k1');
+      expect(peeked, isNotNull);
+
+      await renderKeyed(tester, renderer, 'k3');
+
+      expect(renderer.isCached('k1'), isFalse);
+      expect(renderer.isCached('k2'), isTrue);
+      expect(renderer.isCached('k3'), isTrue);
+    });
+
+    testWidgets('peekCache returns the most recently used variant of a key', (
+      tester,
+    ) async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      final renderer = MarkerIconRenderer();
+
+      await renderKeyed(tester, renderer, 'k', side: 16);
+      final MarkerIcon larger = await renderKeyed(
+        tester,
+        renderer,
+        'k',
+        side: 24,
+      );
+      expect(identical(renderer.peekCache('k'), larger), isTrue);
+
+      final MarkerIcon smallerAgain = await renderKeyed(
+        tester,
+        renderer,
+        'k',
+        side: 16,
+      );
+      expect(identical(renderer.peekCache('k'), smallerAgain), isTrue);
+    });
+
+    testWidgets('a cache hit bumps the entry in LRU order', (tester) async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      final renderer = MarkerIconRenderer(maxCacheEntries: 2);
+
+      await renderKeyed(tester, renderer, 'k1');
+      await renderKeyed(tester, renderer, 'k2');
+      await renderKeyed(tester, renderer, 'k1');
+      await renderKeyed(tester, renderer, 'k3');
+
+      expect(renderer.isCached('k1'), isTrue);
+      expect(renderer.isCached('k2'), isFalse);
+      expect(renderer.isCached('k3'), isTrue);
+    });
+
+    testWidgets('cache hits hand out icons whose descriptors are identical', (
+      tester,
+    ) async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      final renderer = MarkerIconRenderer();
+
+      final MarkerIcon first = await renderKeyed(tester, renderer, 'stable');
+      final MarkerIcon second = await renderKeyed(tester, renderer, 'stable');
+
+      expect(identical(first, second), isTrue);
+      expect(identical(first.toMapBitmap(), second.toMapBitmap()), isTrue);
+    });
+
+    testWidgets('concurrent same-key renders run prepare only once', (
+      tester,
+    ) async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      final renderer = MarkerIconRenderer();
+      var prepareCount = 0;
+
+      final results = await tester.runAsync(
+        () => Future.wait<MarkerIcon>([
+          renderer.render(
+            const SizedBox(),
+            options: MarkerRenderOptions(
+              logicalSize: const Size(24, 24),
+              pixelRatio: 1,
+              cacheKey: 'prepare-once',
+              prepare: () async => prepareCount++,
+            ),
+          ),
+          renderer.render(
+            const SizedBox(),
+            options: MarkerRenderOptions(
+              logicalSize: const Size(24, 24),
+              pixelRatio: 1,
+              cacheKey: 'prepare-once',
+              prepare: () async => prepareCount++,
+            ),
+          ),
+        ]),
+      );
+
+      expect(identical(results![0], results[1]), isTrue);
+      expect(prepareCount, 1);
+    });
+
+    testWidgets('a failed image dependency releases the image permit for '
+        'the next job', (tester) async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      final renderer = MarkerIconRenderer(
+        enableCaching: false,
+        maxConcurrentImageLoads: 1,
+      );
+
+      await tester.runAsync(() async {
+        await expectLater(
+          renderer.render(
+            const Image(image: _FailingImageProvider()),
+            options: MarkerRenderOptions(
+              logicalSize: const Size(16, 16),
+              pixelRatio: 1,
+              imageDependencies: <MarkerImageDependency>[
+                const MarkerImageDependency(_FailingImageProvider()),
+              ],
+            ),
+          ),
+          throwsA(isA<MarkerImageLoadException>()),
+        );
+
+        final healthy = MemoryImage(_onePixelPng());
+        final MarkerIcon icon = await renderer
+            .render(
+              Image(image: healthy),
+              options: MarkerRenderOptions(
+                logicalSize: const Size(16, 16),
+                pixelRatio: 1,
+                imageDependencies: <MarkerImageDependency>[
+                  MarkerImageDependency(healthy),
+                ],
+              ),
+            )
+            .timeout(const Duration(seconds: 5));
+        expect(icon.bytes, isNotEmpty);
+      });
     });
   });
 }
