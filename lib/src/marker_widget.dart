@@ -125,13 +125,19 @@ class WidgetBitmapRenderOptions extends Equatable {
 class MarkerIcon {
   /// Creates an icon from rendered PNG [bytes], [logicalSize], and
   /// [pixelRatio].
-  const MarkerIcon({
-    required this.bytes,
+  ///
+  /// The byte list is copied, so later mutations of the source list never
+  /// affect the icon, its equality, or its cached conversions.
+  MarkerIcon({
+    required Uint8List bytes,
     required this.logicalSize,
     required this.pixelRatio,
-  });
+  }) : bytes = Uint8List.fromList(bytes).asUnmodifiableView();
 
   /// PNG bytes of the rendered widget.
+  ///
+  /// This is an unmodifiable view of a private copy; writing to it throws
+  /// [UnsupportedError].
   final Uint8List bytes;
 
   /// The logical size the widget was rendered at.
@@ -354,14 +360,26 @@ class MarkerIcon {
       return true;
     }
     return other is MarkerIcon &&
-        listEquals(bytes, other.bytes) &&
         logicalSize == other.logicalSize &&
-        pixelRatio == other.pixelRatio;
+        pixelRatio == other.pixelRatio &&
+        bytes.lengthInBytes == other.bytes.lengthInBytes &&
+        hashCode == other.hashCode &&
+        listEquals(bytes, other.bytes);
   }
 
+  /// Computed once per icon: the bytes are immutable, so the content hash
+  /// can never change.
   @override
-  int get hashCode =>
-      Object.hash(Object.hashAll(bytes), logicalSize, pixelRatio);
+  late final int hashCode = Object.hash(
+    logicalSize,
+    pixelRatio,
+    Object.hashAll(bytes),
+  );
+
+  @override
+  String toString() =>
+      'MarkerIcon(${logicalSize.width}x${logicalSize.height} '
+      '@${pixelRatio}x, ${bytes.lengthInBytes} bytes)';
 }
 
 /// Renders arbitrary widgets into PNG bytes off-screen.

@@ -182,6 +182,31 @@ void main() {
       expect(icon1.hashCode, icon2.hashCode);
     });
 
+    test('copies bytes defensively at construction', () {
+      final source = Uint8List.fromList(validPngBytes);
+      final icon = buildIcon(bytes: source);
+
+      source[0] = 0x00;
+
+      expect(icon.bytes[0], 0x89);
+      expect(icon, buildIcon());
+    });
+
+    test('exposes bytes as an unmodifiable view', () {
+      final icon = buildIcon();
+
+      expect(() => icon.bytes[0] = 0x00, throwsUnsupportedError);
+    });
+
+    test('describes itself in toString', () {
+      final icon = buildIcon();
+
+      expect(
+        icon.toString(),
+        'MarkerIcon(100.0x100.0 @2.0x, ${validPngBytes.length} bytes)',
+      );
+    });
+
     group('toMapBitmap', () {
       test('defaults to logical-size dimensions', () {
         final bitmap = buildIcon(logicalSize: const Size(80, 60)).toMapBitmap();
