@@ -1,5 +1,7 @@
 # custom
 FOLLOWUP.md
+.claude/
+plugins/marker-widget/evals/results/
 
 # Miscellaneous
 *.class

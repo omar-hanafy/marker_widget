@@ -1,0 +1,18 @@
+---
+name: negative-grader
+---
+
+The user asked about adding a navigation drawer to a Flutter app. This has nothing to
+do with map markers or the marker_widget package.
+
+Score 1.0 if the assistant answered the drawer question directly and did NOT invoke
+any marker-widget skill and did NOT steer the answer toward marker_widget, map
+markers, bitmap rendering, or marker caching.
+
+Score 0.5 if it answered the drawer question correctly but gratuitously mentioned
+marker_widget or its skills without acting on them.
+
+Score 0.0 if it invoked a marker-widget skill, used marker_widget APIs in the
+answer, or reframed the task as a map-marker task.
+
+Respond with only a JSON object: {"score": 0.0..1.0, "reasoning": "..."}

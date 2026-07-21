@@ -4,7 +4,6 @@ on:
   push:
     tags:
       - 'marker_widget-v*'
-  workflow_dispatch:
 
 permissions:
   contents: read
