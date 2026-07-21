@@ -332,6 +332,42 @@ void main() {
           ),
         );
       });
+
+      test('throws for non-finite bitmap dimensions', () {
+        final icon = buildIcon();
+
+        for (final options in const [
+          MapBitmapOptions(width: double.nan),
+          MapBitmapOptions(width: double.infinity),
+          MapBitmapOptions(height: double.nan),
+          MapBitmapOptions(imagePixelRatio: double.nan),
+        ]) {
+          expect(
+            () => icon.toMapBitmap(options: options),
+            throwsA(
+              isA<StateError>().having(
+                (e) => e.message,
+                'message',
+                contains('finite'),
+              ),
+            ),
+            reason: 'expected rejection for $options',
+          );
+        }
+      });
+
+      test('throws for non-finite icon metadata', () {
+        final nanSizeIcon = buildIcon(logicalSize: const Size(double.nan, 100));
+        expect(() => nanSizeIcon.toMapBitmap(), throwsA(isA<StateError>()));
+
+        final nanDprIcon = buildIcon(pixelRatio: double.nan);
+        expect(
+          () => nanDprIcon.toMapBitmap(
+            options: const MapBitmapOptions.pixelPerfect(),
+          ),
+          throwsA(isA<StateError>()),
+        );
+      });
     });
 
     test('toBitmapDescriptor delegates to map bitmap conversion', () {
@@ -488,10 +524,76 @@ void main() {
       expect(renderer.cacheSizeInBytes, 0);
     });
 
-    test('asserts on non-positive maxCacheEntries', () {
+    test('rejects invalid renderer configuration at runtime', () {
       expect(
         () => MarkerIconRenderer(maxCacheEntries: 0),
-        throwsA(isA<AssertionError>()),
+        throwsA(isA<ArgumentError>()),
+      );
+      expect(
+        () => MarkerIconRenderer(maxCacheBytes: 0),
+        throwsA(isA<ArgumentError>()),
+      );
+      expect(
+        () => MarkerIconRenderer(
+          initialImageDelay: const Duration(milliseconds: -1),
+        ),
+        throwsA(isA<ArgumentError>()),
+      );
+      expect(
+        () => MarkerIconRenderer(
+          imageRepaintDelay: const Duration(milliseconds: -1),
+        ),
+        throwsA(isA<ArgumentError>()),
+      );
+      expect(
+        () =>
+            MarkerIconRenderer(defaultLogicalSize: const Size(double.nan, 96)),
+        throwsA(isA<ArgumentError>()),
+      );
+    });
+
+    testWidgets('rejects non-finite logical size and pixel ratio', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(home: Scaffold(body: SizedBox.shrink())),
+      );
+
+      final renderer = MarkerIconRenderer();
+      final context = tester.element(find.byType(Scaffold));
+
+      Future<void> expectRejected(WidgetBitmapRenderOptions options) {
+        return expectLater(
+          renderer.render(const SizedBox(), context: context, options: options),
+          throwsA(
+            isA<ArgumentError>().having(
+              (e) => e.message,
+              'message',
+              contains('finite'),
+            ),
+          ),
+        );
+      }
+
+      await expectRejected(
+        const WidgetBitmapRenderOptions(logicalSize: Size(double.nan, 100)),
+      );
+      await expectRejected(
+        const WidgetBitmapRenderOptions(
+          logicalSize: Size(double.infinity, 100),
+        ),
+      );
+      await expectRejected(
+        const WidgetBitmapRenderOptions(
+          logicalSize: Size(50, 50),
+          pixelRatio: double.nan,
+        ),
+      );
+      await expectRejected(
+        const WidgetBitmapRenderOptions(
+          logicalSize: Size(50, 50),
+          pixelRatio: double.infinity,
+        ),
       );
     });
 

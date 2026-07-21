@@ -9,6 +9,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:google_maps_flutter_platform_interface/google_maps_flutter_platform_interface.dart';
 
+bool _isPositiveFinite(double value) => value.isFinite && value > 0;
+
 /// Options that control how a rendered bitmap is interpreted on the map.
 ///
 /// When [width], [height], and [imagePixelRatio] are all omitted,
@@ -173,9 +175,10 @@ class MarkerIcon {
     }
 
     if (!hasExplicitBitmapMetadata) {
-      if (logicalSize.width <= 0 || logicalSize.height <= 0) {
+      if (!_isPositiveFinite(logicalSize.width) ||
+          !_isPositiveFinite(logicalSize.height)) {
         throw StateError(
-          'MarkerIcon.logicalSize must be > 0 in both dimensions. '
+          'MarkerIcon.logicalSize must be > 0 and finite in both dimensions. '
           'Got $logicalSize.',
         );
       }
@@ -283,24 +286,32 @@ class MarkerIcon {
       );
     }
 
-    if (options.width != null && options.width! <= 0) {
+    if (options.width != null && !_isPositiveFinite(options.width!)) {
       throw StateError(
-        'MapBitmapOptions.width must be > 0 when provided. '
+        'MapBitmapOptions.width must be > 0 and finite when provided. '
         'Got ${options.width}.',
       );
     }
 
-    if (options.height != null && options.height! <= 0) {
+    if (options.height != null && !_isPositiveFinite(options.height!)) {
       throw StateError(
-        'MapBitmapOptions.height must be > 0 when provided. '
+        'MapBitmapOptions.height must be > 0 and finite when provided. '
         'Got ${options.height}.',
       );
     }
 
-    if (options.imagePixelRatio != null && options.imagePixelRatio! <= 0) {
+    if (options.imagePixelRatio != null &&
+        !_isPositiveFinite(options.imagePixelRatio!)) {
       throw StateError(
-        'MapBitmapOptions.imagePixelRatio must be > 0 when provided. '
-        'Got ${options.imagePixelRatio}.',
+        'MapBitmapOptions.imagePixelRatio must be > 0 and finite when '
+        'provided. Got ${options.imagePixelRatio}.',
+      );
+    }
+
+    if (options.useRenderedPixelRatio && !_isPositiveFinite(pixelRatio)) {
+      throw StateError(
+        'MarkerIcon.pixelRatio must be > 0 and finite to use '
+        'MapBitmapOptions.useRenderedPixelRatio. Got $pixelRatio.',
       );
     }
   }
@@ -327,6 +338,10 @@ class MarkerIcon {
 /// API stays stable if Flutter tweaks internals again.
 class MarkerIconRenderer {
   /// Creates a renderer that turns widgets into marker icons.
+  ///
+  /// Throws [ArgumentError] when [defaultLogicalSize] is not positive and
+  /// finite, [maxCacheEntries] is not positive, [maxCacheBytes] is provided
+  /// but not positive, or either image delay is negative.
   MarkerIconRenderer({
     this.defaultLogicalSize = const Size(96, 96),
     this.enableCaching = true,
@@ -334,7 +349,44 @@ class MarkerIconRenderer {
     this.maxCacheBytes = 50 * 1024 * 1024,
     this.initialImageDelay = const Duration(milliseconds: 16),
     this.imageRepaintDelay = const Duration(milliseconds: 200),
-  }) : assert(maxCacheEntries > 0, 'maxCacheEntries must be > 0');
+  }) {
+    if (!_isPositiveFinite(defaultLogicalSize.width) ||
+        !_isPositiveFinite(defaultLogicalSize.height)) {
+      throw ArgumentError.value(
+        defaultLogicalSize,
+        'defaultLogicalSize',
+        'width and height must both be > 0 and finite.',
+      );
+    }
+    if (maxCacheEntries <= 0) {
+      throw ArgumentError.value(
+        maxCacheEntries,
+        'maxCacheEntries',
+        'must be > 0.',
+      );
+    }
+    if (maxCacheBytes != null && maxCacheBytes! <= 0) {
+      throw ArgumentError.value(
+        maxCacheBytes,
+        'maxCacheBytes',
+        'must be > 0 when provided.',
+      );
+    }
+    if (initialImageDelay < Duration.zero) {
+      throw ArgumentError.value(
+        initialImageDelay,
+        'initialImageDelay',
+        'must not be negative.',
+      );
+    }
+    if (imageRepaintDelay < Duration.zero) {
+      throw ArgumentError.value(
+        imageRepaintDelay,
+        'imageRepaintDelay',
+        'must not be negative.',
+      );
+    }
+  }
 
   /// The default marker size used when [render] is called without a logical
   /// size.
@@ -391,19 +443,20 @@ class MarkerIconRenderer {
     final ui.FlutterView view = _resolveView(context);
     final Size size = options.logicalSize ?? defaultLogicalSize;
 
-    if (size.width <= 0 || size.height <= 0) {
+    if (!_isPositiveFinite(size.width) || !_isPositiveFinite(size.height)) {
       throw ArgumentError.value(
         size,
         'options.logicalSize',
-        'logicalSize.width and logicalSize.height must both be > 0.',
+        'logicalSize.width and logicalSize.height must both be > 0 and '
+            'finite.',
       );
     }
 
-    if (options.pixelRatio != null && options.pixelRatio! <= 0) {
+    if (options.pixelRatio != null && !_isPositiveFinite(options.pixelRatio!)) {
       throw ArgumentError.value(
         options.pixelRatio,
         'options.pixelRatio',
-        'pixelRatio must be > 0 when provided.',
+        'pixelRatio must be > 0 and finite when provided.',
       );
     }
 
