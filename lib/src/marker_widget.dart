@@ -358,43 +358,36 @@ class MarkerIconRenderer {
   final Duration imageRepaintDelay;
 
   /// Current number of cached entries.
+  ///
+  /// Each cached combination of cache key, logical size, and pixel ratio
+  /// counts as one entry.
   int get cacheSize => _cache.length;
 
   /// Current cache size in bytes.
   int get cacheSizeInBytes => _currentCacheBytes;
 
-  final LinkedHashMap<Object, MarkerIcon> _cache =
-      LinkedHashMap<Object, MarkerIcon>();
+  final LinkedHashMap<_ResolvedCacheKey, MarkerIcon> _cache =
+      LinkedHashMap<_ResolvedCacheKey, MarkerIcon>();
   int _currentCacheBytes = 0;
-  final Map<Object, _PendingRender> _pending = <Object, _PendingRender>{};
-  int _globalCacheGeneration = 0;
-  final Map<Object, int> _keyGenerations = <Object, int>{};
+  final Map<_ResolvedCacheKey, _PendingRender> _pending =
+      <_ResolvedCacheKey, _PendingRender>{};
 
   /// Renders [widget] into a [MarkerIcon].
   ///
   /// If [context] is supplied, the render tree inherits that context's
   /// `MediaQuery`, theme, directionality, localizations, and asset bundle.
+  ///
+  /// Cached entries are looked up by [WidgetBitmapRenderOptions.cacheKey]
+  /// combined with the resolved logical size and pixel ratio, so reusing one
+  /// cache key at a different size or pixel ratio always renders a fresh
+  /// icon. Content inputs that change the rendered output (theme brightness,
+  /// locale, selection state, ...) still belong in the cache key itself; see
+  /// [buildMarkerCacheKey].
   Future<MarkerIcon> render(
     Widget widget, {
     BuildContext? context,
     WidgetBitmapRenderOptions options = const WidgetBitmapRenderOptions(),
   }) async {
-    final Object? key = enableCaching ? options.cacheKey : null;
-    final int? cacheToken = key != null ? _cacheTokenFor(key) : null;
-
-    if (key != null) {
-      final MarkerIcon? cached = _cache[key];
-      if (cached != null) {
-        _bump(key);
-        return cached;
-      }
-
-      final _PendingRender? pending = _pending[key];
-      if (pending != null && pending.cacheToken == cacheToken) {
-        return pending.future;
-      }
-    }
-
     final ui.FlutterView view = _resolveView(context);
     final Size size = options.logicalSize ?? defaultLogicalSize;
 
@@ -416,6 +409,24 @@ class MarkerIconRenderer {
 
     final double dpr = options.pixelRatio ?? view.devicePixelRatio;
 
+    final Object? cacheKey = enableCaching ? options.cacheKey : null;
+    final _ResolvedCacheKey? key = cacheKey == null
+        ? null
+        : (cacheKey, size, dpr);
+
+    if (key != null) {
+      final MarkerIcon? cached = _cache[key];
+      if (cached != null) {
+        _bump(key);
+        return cached;
+      }
+
+      final _PendingRender? pending = _pending[key];
+      if (pending != null && !pending.stale) {
+        return pending.future;
+      }
+    }
+
     final Future<MarkerIcon> renderFuture = _doRender(
       widget,
       context: context,
@@ -427,56 +438,77 @@ class MarkerIconRenderer {
       imageRepaintDelay: options.imageRepaintDelay ?? imageRepaintDelay,
     );
 
-    if (key != null && cacheToken != null) {
-      _pending[key] = _PendingRender(
-        future: renderFuture,
-        cacheToken: cacheToken,
-      );
+    _PendingRender? pendingEntry;
+    if (key != null) {
+      pendingEntry = _PendingRender(renderFuture);
+      _pending[key] = pendingEntry;
     }
 
     try {
       final MarkerIcon icon = await renderFuture;
 
-      if (key != null &&
-          cacheToken != null &&
-          cacheToken == _cacheTokenFor(key)) {
+      if (key != null && !pendingEntry!.stale) {
         _put(key, icon);
       }
 
       return icon;
     } finally {
-      if (key != null) {
-        final _PendingRender? pending = _pending[key];
-        if (pending != null &&
-            pending.cacheToken == cacheToken &&
-            identical(pending.future, renderFuture)) {
-          _pending.remove(key);
-        }
+      if (key != null && identical(_pending[key], pendingEntry)) {
+        _pending.remove(key);
       }
     }
   }
 
   /// Clears the internal cache completely.
+  ///
+  /// In-flight renders keep completing and their futures still resolve, but
+  /// they no longer repopulate the cache.
   void clearCache() {
     _cache.clear();
     _currentCacheBytes = 0;
-    _globalCacheGeneration += 1;
-  }
-
-  /// Removes one cached entry by [key].
-  void removeFromCache(Object key) {
-    final MarkerIcon? removed = _cache.remove(key);
-    if (removed != null) {
-      _currentCacheBytes -= removed.sizeInBytes;
+    for (final _PendingRender pending in _pending.values) {
+      pending.stale = true;
     }
-    _keyGenerations[key] = (_keyGenerations[key] ?? 0) + 1;
   }
 
-  /// Returns whether [key] is currently cached.
-  bool isCached(Object key) => _cache.containsKey(key);
+  /// Removes every cached variant of [key], across all sizes and pixel
+  /// ratios.
+  ///
+  /// In-flight renders for [key] keep completing, but they no longer
+  /// repopulate the cache.
+  void removeFromCache(Object key) {
+    _cache.removeWhere((_ResolvedCacheKey resolvedKey, MarkerIcon icon) {
+      if (resolvedKey.$1 == key) {
+        _currentCacheBytes -= icon.sizeInBytes;
+        return true;
+      }
+      return false;
+    });
 
-  /// Returns a cached icon without updating LRU order.
-  MarkerIcon? peekCache(Object key) => _cache[key];
+    for (final MapEntry<_ResolvedCacheKey, _PendingRender> entry
+        in _pending.entries) {
+      if (entry.key.$1 == key) {
+        entry.value.stale = true;
+      }
+    }
+  }
+
+  /// Returns whether any variant of [key] is currently cached.
+  bool isCached(Object key) =>
+      _cache.keys.any((_ResolvedCacheKey resolvedKey) => resolvedKey.$1 == key);
+
+  /// Returns the most recently used cached variant of [key] without updating
+  /// LRU order.
+  MarkerIcon? peekCache(Object key) {
+    MarkerIcon? match;
+    for (final MapEntry<_ResolvedCacheKey, MarkerIcon> entry
+        in _cache.entries) {
+      if (entry.key.$1 == key) {
+        match = entry.value;
+      }
+    }
+    return match;
+  }
 
   Future<MarkerIcon> _doRender(
     Widget widget, {
@@ -734,17 +766,14 @@ class MarkerIconRenderer {
     return found;
   }
 
-  void _bump(Object key) {
+  void _bump(_ResolvedCacheKey key) {
     final MarkerIcon? icon = _cache.remove(key);
     if (icon != null) {
       _cache[key] = icon;
     }
   }
 
-  int _cacheTokenFor(Object key) =>
-      Object.hash(_globalCacheGeneration, _keyGenerations[key] ?? 0);
-
-  void _put(Object key, MarkerIcon icon) {
+  void _put(_ResolvedCacheKey key, MarkerIcon icon) {
     final MarkerIcon? existing = _cache.remove(key);
     if (existing != null) {
       _currentCacheBytes -= existing.sizeInBytes;
@@ -759,7 +788,7 @@ class MarkerIconRenderer {
     if (maxCacheBytes != null) {
       while (_currentCacheBytes + iconBytes > maxCacheBytes! &&
           _cache.isNotEmpty) {
-        final Object oldestKey = _cache.keys.first;
+        final _ResolvedCacheKey oldestKey = _cache.keys.first;
         final MarkerIcon? evicted = _cache.remove(oldestKey);
         if (evicted != null) {
           _currentCacheBytes -= evicted.sizeInBytes;
@@ -768,7 +797,7 @@ class MarkerIconRenderer {
     }
 
     while (_cache.length >= maxCacheEntries && _cache.isNotEmpty) {
-      final Object oldestKey = _cache.keys.first;
+      final _ResolvedCacheKey oldestKey = _cache.keys.first;
       final MarkerIcon? evicted = _cache.remove(oldestKey);
       if (evicted != null) {
         _currentCacheBytes -= evicted.sizeInBytes;
@@ -780,11 +809,20 @@ class MarkerIconRenderer {
   }
 }
 
+/// Cache identity: the caller's key combined with the resolved render
+/// geometry, so one key can never return an icon rendered at another size or
+/// pixel ratio.
+typedef _ResolvedCacheKey = (Object cacheKey, Size logicalSize, double dpr);
+
 class _PendingRender {
-  const _PendingRender({required this.future, required this.cacheToken});
+  _PendingRender(this.future);
 
   final Future<MarkerIcon> future;
-  final int cacheToken;
+
+  /// Set when the cache is invalidated while this render is in flight; a
+  /// stale render still resolves for its callers but is neither joined by
+  /// new calls nor written back into the cache.
+  bool stale = false;
 }
 
 /// The shared renderer used by the widget extensions when no explicit

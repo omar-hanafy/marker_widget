@@ -578,6 +578,106 @@ void main() {
       expect(renderer.cacheSize, 1);
     });
 
+    testWidgets('does not reuse a cached icon for a different logical size', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(home: Scaffold(body: SizedBox.shrink())),
+      );
+
+      final renderer = MarkerIconRenderer();
+      final context = tester.element(find.byType(Scaffold));
+
+      Future<MarkerIcon?> renderSized(Size size) => tester.runAsync(
+        () => renderer.render(
+          const ColoredBox(color: Colors.red),
+          context: context,
+          options: WidgetBitmapRenderOptions(
+            logicalSize: size,
+            pixelRatio: 1.0,
+            cacheKey: 'sized',
+          ),
+        ),
+      );
+
+      final small = await renderSized(const Size(24, 24));
+      final large = await renderSized(const Size(48, 48));
+
+      expect(small!.logicalSize, const Size(24, 24));
+      expect(large!.logicalSize, const Size(48, 48));
+      expect(identical(small, large), isFalse);
+      expect(renderer.cacheSize, 2);
+    });
+
+    testWidgets('does not reuse a cached icon for a different pixel ratio', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(home: Scaffold(body: SizedBox.shrink())),
+      );
+
+      final renderer = MarkerIconRenderer();
+      final context = tester.element(find.byType(Scaffold));
+
+      Future<MarkerIcon?> renderAtDpr(double dpr) => tester.runAsync(
+        () => renderer.render(
+          const ColoredBox(color: Colors.green),
+          context: context,
+          options: WidgetBitmapRenderOptions(
+            logicalSize: const Size(20, 20),
+            pixelRatio: dpr,
+            cacheKey: 'dpr',
+          ),
+        ),
+      );
+
+      final lowDpr = await renderAtDpr(1.0);
+      final highDpr = await renderAtDpr(3.0);
+
+      expect(lowDpr!.pixelRatio, 1.0);
+      expect(highDpr!.pixelRatio, 3.0);
+      expect(identical(lowDpr, highDpr), isFalse);
+    });
+
+    testWidgets(
+      'concurrent same-key renders with different sizes render separately',
+      (tester) async {
+        await tester.pumpWidget(
+          const MaterialApp(home: Scaffold(body: SizedBox.shrink())),
+        );
+
+        final renderer = MarkerIconRenderer();
+        final context = tester.element(find.byType(Scaffold));
+
+        final results = await tester.runAsync(
+          () => Future.wait<MarkerIcon>([
+            renderer.render(
+              const ColoredBox(color: Colors.blue),
+              context: context,
+              options: const WidgetBitmapRenderOptions(
+                logicalSize: Size(24, 24),
+                pixelRatio: 1.0,
+                cacheKey: 'race',
+              ),
+            ),
+            renderer.render(
+              const ColoredBox(color: Colors.blue),
+              context: context,
+              options: const WidgetBitmapRenderOptions(
+                logicalSize: Size(48, 48),
+                pixelRatio: 1.0,
+                cacheKey: 'race',
+              ),
+            ),
+          ]),
+        );
+
+        expect(results![0].logicalSize, const Size(24, 24));
+        expect(results[1].logicalSize, const Size(48, 48));
+        expect(renderer.cacheSize, 2);
+      },
+    );
+
     testWidgets('does not cache when disabled', (tester) async {
       await tester.pumpWidget(
         const MaterialApp(home: Scaffold(body: SizedBox.shrink())),
