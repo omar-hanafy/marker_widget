@@ -1,7 +1,7 @@
 {
   "name": "marker-widget",
-  "version": "2.1.0-dev.1",
-  "description": "Package-specific skills for the marker_widget Flutter package: correct integration and sizing, cache-key and performance tuning, symptom-based troubleshooting, and the v1-to-v2 migration.",
+  "version": "3.0.0",
+  "description": "Package-specific skills for the marker_widget Flutter package: correct integration and sizing, cache-key and performance tuning, symptom-based troubleshooting, and the v1-to-v2 and v2-to-v3 migrations.",
   "author": {
     "name": "Omar Khaled Hanafy",
     "url": "https://github.com/omar-hanafy"
