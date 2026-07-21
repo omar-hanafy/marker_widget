@@ -9,7 +9,7 @@
     {
       "name": "marker-widget",
       "source": "./plugins/marker-widget",
-      "description": "Skills and a read-only reviewer agent for building, tuning, troubleshooting, and migrating marker_widget usage in Flutter apps.",
+      "description": "Skills and a read-only reviewer agent for building, tuning, and troubleshooting marker_widget 3.x usage in Flutter apps.",
       "license": "MIT",
       "keywords": [
         "flutter",

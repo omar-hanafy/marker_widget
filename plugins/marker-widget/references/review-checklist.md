@@ -7,7 +7,7 @@ MEDIUM = performance or correctness under specific conditions, LOW = style/robus
 Find usage sites first:
 
 ```
-grep -rn "toBitmapDescriptor\|toMapBitmap\|toMarkerIcon\|toMarker(\|toAdvancedMarker\|toAdvancedPinMarker\|toPinConfig\|toBitmapGlyph\|toGroundOverlayBitmap\|MarkerIconRenderer\|defaultMarkerIconRenderer" lib/
+grep -rn "toBitmapDescriptor\|toMapBitmap\|toMarkerIcon\|toMarker(\|toAdvancedMarker\|toAdvancedPinMarker\|toPinConfig\|toBitmapGlyph\|toGroundOverlayBitmap\|MarkerIconRenderer\|MarkerCacheKey\|MarkerImageDependency\|imageDependencies\|prepare" lib/
 ```
 
 ## 1. Renders without a cacheKey on a hot path (HIGH)
@@ -17,41 +17,51 @@ Search: extension calls whose `renderOptions` has no `cacheKey`, especially insi
 callbacks, or loops over model lists.
 Why: no `cacheKey` means no caching AND no in-flight deduplication; every call is a full
 off-screen build + rasterize + PNG encode. On camera events this renders every frame.
-Fix: add `cacheKey: buildMarkerCacheKey(...)`, or render once into a `MarkerIcon` held in
+Fix: add `cacheKey: MarkerCacheKey(...)`, or render once into a `MarkerIcon` held in
 state and convert synchronously.
 
-## 2. Cache key missing a visual input (HIGH)
+## 2. Cache key missing a visual input or lacking value equality (HIGH)
 
-Search: `cacheKey:` values that are plain ids or string literals; `buildMarkerCacheKey`
-calls without `brightness`/`locale` in apps that support dark mode or localization;
-selection/status rendered in the widget but absent from the key (`extra:`).
+Search: `cacheKey:` values that are plain ids or string literals; `MarkerCacheKey`
+without `brightness`/`locale` in apps that support dark mode or localization;
+selection/status rendered in the widget but absent from the key (`extra:`); `extra:`
+holding a `List`, `Map`, or custom object without `==`.
 Why: the first rendered variant sticks; theme toggles, locale switches, or selection
-changes show stale icons.
-Fix: include every input that changes pixels: id, logicalSize, pixelRatio, brightness,
-locale, `extra` for state (selected, count, avatar revision).
+changes show stale icons. A fresh identity-compared `extra` misses every time, while
+mutating and reusing the same collection can return stale output. The renderer adds
+resolved size and DPR to cache identity itself; those never belong in the key.
+Fix: include every content input that changes pixels: id, brightness, locale,
+`extra` for state (selected, count, avatar revision), using records or other
+value-equal types for `extra`.
 
-## 3. Network/async images without waitForImages or precache (HIGH)
+## 3. Images displayed but not declared as dependencies (HIGH)
 
-Search: `Image.network`, `NetworkImage`, `CachedNetworkImage`, `FadeInImage` inside
-widgets passed to any `to*` method, with `waitForImages` unset.
-Why: the off-screen tree is painted immediately; async images paint as blanks. Even with
-`waitForImages: true` the wait is delay-based (16ms check + 200ms repaint), not a
-completion guarantee, so slow networks can still produce blank areas.
-Fix: `precacheImage(...)` the provider first (best), or set `waitForImages: true` and
-raise `imageRepaintDelay` for slow sources. Flag any widget relying on animations,
-`FutureBuilder`, or post-frame state: the renderer takes one (optionally two) frames
-only.
+Search: `Image.network`, `NetworkImage`, `CachedNetworkImage`, `FadeInImage`,
+`DecorationImage`, `CircleAvatar(backgroundImage:` inside widgets passed to any `to*`
+method, where the render call's `imageDependencies` does not include the same
+provider.
+Why: the off-screen tree is captured in one deterministic pass; an undeclared async
+image is still decoding at capture time and paints blank. Declared providers are
+decoded before capture and retained until it completes, which is the supported path.
+Fix: declare `MarkerImageDependency(provider)` entries in
+`renderOptions.imageDependencies`. For size-sensitive providers, set
+`configurationSize` to the exact image layout size. Check the failure path too: a
+dead URL throws `MarkerImageLoadException`; hot paths should catch it and fall back
+to a placeholder icon. Flag any widget relying on animations, `FutureBuilder`, or
+post-frame state: the renderer captures a single frame. Use `prepare` for required
+font or data futures.
 
 ## 4. Context omitted where the widget depends on it (MEDIUM)
 
 Search: `to*` calls without `context:` where the rendered widget uses `Theme.of`,
-`Localizations`, `Directionality`, `MediaQuery`, `DefaultAssetBundle`, or inherited
-widgets (Provider/Riverpod/Bloc via context).
+`Directionality`, `MediaQuery`, or `DefaultAssetBundle`.
 Why: without `context`, the render tree gets defaults (LTR, no app theme, no app
-localizations); inherited-widget lookups may throw or silently use fallbacks.
-Fix: pass `context:`. Note `InheritedTheme.captureAll` covers theme-like inherited
-state; providers that are not `InheritedTheme`s are captured as regular inherited
-widgets from the given context.
+media settings). The context locale configures image-provider resolution, but
+localization resources are not copied. Arbitrary inherited state such as Provider,
+Riverpod, Bloc, Navigator, Overlay, and Scaffold is not captured by passing context.
+Fix: pass `context:` for the supported environment. Pass provider values directly to
+the marker widget or explicitly wrap the supplied widget with the required scope.
+Pass already resolved localized strings into the marker widget.
 
 ## 5. Renders off the UI isolate or before binding init (HIGH)
 
@@ -91,10 +101,10 @@ device and keep a fallback.
 
 Search: custom `MarkerIconRenderer(maxCacheBytes: null)` or huge `maxCacheEntries`;
 apps with logout/theme switches that never call `clearCache()`;
-`defaultMarkerIconRenderer` holding user avatars after logout.
+`MarkerIconRenderer.shared` holding user avatars after logout.
 Why: PNG bytes accumulate (default cap is 50 MB; null removes the cap); stale
 user-specific icons survive account switches.
-Fix: keep byte cap; call `defaultMarkerIconRenderer.clearCache()` on logout and on
+Fix: keep byte cap; call `MarkerIconRenderer.shared.clearCache()` on logout and on
 theme/locale change when keys do not include those inputs.
 
 ## 10. Oversized renders (MEDIUM)

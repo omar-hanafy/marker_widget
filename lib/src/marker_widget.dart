@@ -3,11 +3,12 @@ import 'dart:collection';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:equatable/equatable.dart';
-import 'package:flutter/foundation.dart' show listEquals;
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:google_maps_flutter_platform_interface/google_maps_flutter_platform_interface.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+
+bool _isPositiveFinite(double value) => value.isFinite && value > 0;
 
 /// Options that control how a rendered bitmap is interpreted on the map.
 ///
@@ -18,7 +19,7 @@ import 'package:google_maps_flutter_platform_interface/google_maps_flutter_platf
 /// [imagePixelRatio] must all remain null so the bitmap is passed through
 /// without extra scaling metadata.
 @immutable
-class MapBitmapOptions extends Equatable {
+final class MapBitmapOptions {
   /// Creates bitmap conversion options.
   const MapBitmapOptions({
     this.bitmapScaling = MapBitmapScaling.auto,
@@ -26,12 +27,7 @@ class MapBitmapOptions extends Equatable {
     this.height,
     this.imagePixelRatio,
     this.useRenderedPixelRatio = false,
-  }) : assert(
-         !useRenderedPixelRatio ||
-             (width == null && height == null && imagePixelRatio == null),
-         'useRenderedPixelRatio cannot be combined with width, height, or '
-         'imagePixelRatio.',
-       );
+  });
 
   /// Uses the rendered pixel ratio from the [MarkerIcon] at conversion time
   /// for pixel-perfect display.
@@ -60,13 +56,58 @@ class MapBitmapOptions extends Equatable {
   final bool useRenderedPixelRatio;
 
   @override
-  List<Object?> get props => [
+  bool operator ==(Object other) {
+    if (identical(this, other)) {
+      return true;
+    }
+    return other is MapBitmapOptions &&
+        bitmapScaling == other.bitmapScaling &&
+        width == other.width &&
+        height == other.height &&
+        imagePixelRatio == other.imagePixelRatio &&
+        useRenderedPixelRatio == other.useRenderedPixelRatio;
+  }
+
+  @override
+  int get hashCode => Object.hash(
     bitmapScaling,
     width,
     height,
     imagePixelRatio,
     useRenderedPixelRatio,
-  ];
+  );
+}
+
+/// An image that must be decoded before a marker widget is captured.
+///
+/// [configurationSize] must match the size Flutter supplies when the widget
+/// resolves [provider]. For an [Image] with both `width` and `height`, use
+/// those dimensions. For a [DecorationImage], use the painted box size. It
+/// can stay null when the provider's key does not depend on
+/// [ImageConfiguration.size].
+@immutable
+final class MarkerImageDependency {
+  /// Creates a declared image dependency.
+  const MarkerImageDependency(this.provider, {this.configurationSize});
+
+  /// The provider decoded before capture.
+  final ImageProvider<Object> provider;
+
+  /// The exact size used to resolve a size-sensitive provider.
+  final Size? configurationSize;
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) {
+      return true;
+    }
+    return other is MarkerImageDependency &&
+        provider == other.provider &&
+        configurationSize == other.configurationSize;
+  }
+
+  @override
+  int get hashCode => Object.hash(provider, configurationSize);
 }
 
 /// Options that control how a widget is rendered off-screen.
@@ -75,16 +116,26 @@ class MapBitmapOptions extends Equatable {
 /// [logicalSize] is omitted, and to the active [ui.FlutterView]'s device pixel
 /// ratio when [pixelRatio] is omitted.
 @immutable
-class WidgetBitmapRenderOptions extends Equatable {
+final class MarkerRenderOptions {
   /// Creates widget rendering options.
-  const WidgetBitmapRenderOptions({
+  MarkerRenderOptions({
     this.logicalSize,
     this.pixelRatio,
-    this.waitForImages = false,
     this.cacheKey,
-    this.initialImageDelay,
-    this.imageRepaintDelay,
-  });
+    this.prepare,
+    Iterable<MarkerImageDependency> imageDependencies =
+        const <MarkerImageDependency>[],
+  }) : imageDependencies = List<MarkerImageDependency>.unmodifiable(
+         imageDependencies,
+       );
+
+  /// Creates the immutable default options used by the convenience APIs.
+  const MarkerRenderOptions.defaults()
+    : logicalSize = null,
+      pixelRatio = null,
+      cacheKey = null,
+      prepare = null,
+      imageDependencies = const <MarkerImageDependency>[];
 
   /// The logical size to render. When null, the renderer's default is used.
   final Size? logicalSize;
@@ -92,27 +143,159 @@ class WidgetBitmapRenderOptions extends Equatable {
   /// The pixel ratio to render at. When null, the current view DPR is used.
   final double? pixelRatio;
 
-  /// Whether to do a second paint pass when image render objects are found.
-  final bool waitForImages;
-
   /// Optional cache key used by [MarkerIconRenderer].
   final Object? cacheKey;
 
-  /// Optional override for [MarkerIconRenderer.initialImageDelay].
-  final Duration? initialImageDelay;
+  /// Optional asynchronous preparation performed on a real cache miss.
+  ///
+  /// Use this for runtime font loading or data that must be ready before the
+  /// widget is built. The callback runs after cache lookup and in-flight
+  /// deduplication, before image decoding and render-slot acquisition. If its
+  /// output can change, include a revision in [cacheKey]. Errors propagate to
+  /// the caller.
+  final Future<void> Function()? prepare;
 
-  /// Optional override for [MarkerIconRenderer.imageRepaintDelay].
-  final Duration? imageRepaintDelay;
+  /// Image providers that must be fully decoded before the widget is
+  /// captured.
+  ///
+  /// Declare every [ImageProvider] the widget displays through a standard
+  /// [Image], [DecorationImage], or equivalent direct provider lookup. The
+  /// renderer resolves each provider against the render environment, waits
+  /// for the decode to complete, and keeps the decoded image alive until the
+  /// capture finishes. A provider that fails to load fails the render with
+  /// [MarkerImageLoadException]. Wrappers with their own placeholder,
+  /// animation, or later-frame state are outside this readiness contract;
+  /// capture reflects whatever they paint during the renderer's single
+  /// build-and-paint pass.
+  ///
+  /// Use the same provider instances (or providers with equal cache keys)
+  /// as the widget itself, otherwise the widget's own lookup misses the
+  /// warmed image and captures blank.
+  ///
+  /// The constructor stores an unmodifiable copy of the supplied iterable.
+  final List<MarkerImageDependency> imageDependencies;
 
   @override
-  List<Object?> get props => [
+  bool operator ==(Object other) {
+    if (identical(this, other)) {
+      return true;
+    }
+    return other is MarkerRenderOptions &&
+        logicalSize == other.logicalSize &&
+        pixelRatio == other.pixelRatio &&
+        cacheKey == other.cacheKey &&
+        prepare == other.prepare &&
+        listEquals(imageDependencies, other.imageDependencies);
+  }
+
+  @override
+  int get hashCode => Object.hash(
     logicalSize,
     pixelRatio,
-    waitForImages,
     cacheKey,
-    initialImageDelay,
-    imageRepaintDelay,
-  ];
+    prepare,
+    Object.hashAll(imageDependencies),
+  );
+}
+
+/// Thrown when an image declared in
+/// [MarkerRenderOptions.imageDependencies] fails to load or decode.
+///
+/// The render fails loudly instead of capturing a marker with a missing
+/// image. Catch this to fall back to a placeholder icon.
+final class MarkerImageLoadException implements Exception {
+  /// Creates an exception describing why [provider] failed.
+  MarkerImageLoadException(this.provider, this.cause, this.stackTrace);
+
+  /// The image provider that failed to load.
+  final ImageProvider<Object> provider;
+
+  /// The underlying error reported by the image stream.
+  final Object cause;
+
+  /// The stack trace of the underlying error, when available.
+  final StackTrace? stackTrace;
+
+  @override
+  String toString() =>
+      'MarkerImageLoadException: image dependency $provider failed to '
+      'load: $cause';
+}
+
+/// A structured, collision-safe cache key for rendered marker icons.
+///
+/// Combines the stable identity of a marker with the visual inputs that
+/// change its rendered pixels. The renderer already appends the resolved
+/// logical size and pixel ratio to every cache entry, so they are not part
+/// of this key.
+///
+/// [extra] carries any additional state that changes the rendered output
+/// (selection, status, avatar revision, ...). It is compared with `==`, so
+/// use an immutable value with structural equality - a record such as
+/// `(selected: true, badge: 3)` works well. Fresh identity-based collections
+/// cause cache misses, while mutating and reusing the same collection can
+/// return stale output.
+///
+/// Any object with value semantics works as a
+/// [MarkerRenderOptions.cacheKey]; this class is the package-blessed
+/// convenience, not a requirement.
+@immutable
+final class MarkerCacheKey {
+  /// Creates a cache key for a marker identified by [id].
+  const MarkerCacheKey(this.id, {this.brightness, this.locale, this.extra})
+    : _kind = 'marker';
+
+  /// Creates a cache key for a cluster badge showing [count] items.
+  ///
+  /// Cluster keys never collide with plain keys built from the same value:
+  /// `MarkerCacheKey.cluster(count: 5)` and `MarkerCacheKey(5)` are
+  /// distinct.
+  const MarkerCacheKey.cluster({
+    required int count,
+    this.brightness,
+    this.locale,
+    this.extra,
+  }) : id = count,
+       _kind = 'cluster';
+
+  /// The stable identity of the marker, or the cluster count.
+  final Object id;
+
+  /// The theme brightness the icon is rendered for.
+  final Brightness? brightness;
+
+  /// The locale the icon is rendered for.
+  final Locale? locale;
+
+  /// Additional visual state, compared with `==`.
+  final Object? extra;
+
+  final String _kind;
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) {
+      return true;
+    }
+    return other is MarkerCacheKey &&
+        _kind == other._kind &&
+        id == other.id &&
+        brightness == other.brightness &&
+        locale == other.locale &&
+        extra == other.extra;
+  }
+
+  @override
+  int get hashCode => Object.hash(_kind, id, brightness, locale, extra);
+
+  @override
+  String toString() {
+    final String name = _kind == 'cluster'
+        ? 'MarkerCacheKey.cluster'
+        : 'MarkerCacheKey';
+    return '$name($id, brightness: $brightness, locale: $locale, '
+        'extra: $extra)';
+  }
 }
 
 /// Value object carrying everything about a rendered marker icon.
@@ -120,16 +303,45 @@ class WidgetBitmapRenderOptions extends Equatable {
 /// This is the cacheable unit. Store instances of this class in your own
 /// state management to implement "render once, reuse everywhere" patterns.
 @immutable
-class MarkerIcon {
+final class MarkerIcon {
   /// Creates an icon from rendered PNG [bytes], [logicalSize], and
   /// [pixelRatio].
-  const MarkerIcon({
-    required this.bytes,
+  ///
+  /// The byte list is copied, so later mutations of the source list never
+  /// affect the icon, its equality, or its cached conversions.
+  ///
+  /// Throws [ArgumentError] when [bytes] is empty, [logicalSize] is not
+  /// positive and finite in both dimensions, or [pixelRatio] is not positive
+  /// and finite.
+  MarkerIcon({
+    required Uint8List bytes,
     required this.logicalSize,
     required this.pixelRatio,
-  });
+  }) : bytes = Uint8List.fromList(bytes).asUnmodifiableView() {
+    if (this.bytes.isEmpty) {
+      throw ArgumentError('MarkerIcon.bytes must not be empty.');
+    }
+    if (!_isPositiveFinite(logicalSize.width) ||
+        !_isPositiveFinite(logicalSize.height)) {
+      throw ArgumentError.value(
+        logicalSize,
+        'logicalSize',
+        'width and height must both be > 0 and finite.',
+      );
+    }
+    if (!_isPositiveFinite(pixelRatio)) {
+      throw ArgumentError.value(
+        pixelRatio,
+        'pixelRatio',
+        'must be > 0 and finite.',
+      );
+    }
+  }
 
   /// PNG bytes of the rendered widget.
+  ///
+  /// This is an unmodifiable view of a private copy; writing to it throws
+  /// [UnsupportedError].
   final Uint8List bytes;
 
   /// The logical size the widget was rendered at.
@@ -141,6 +353,11 @@ class MarkerIcon {
   /// The size of the encoded PNG in bytes.
   int get sizeInBytes => bytes.lengthInBytes;
 
+  /// Cached descriptors per icon instance so repeated conversions hand the
+  /// map identical objects. Entries are garbage collected with the icon.
+  static final Expando<Map<MapBitmapOptions, BytesMapBitmap>> _mapBitmapCache =
+      Expando<Map<MapBitmapOptions, BytesMapBitmap>>('MarkerIcon.toMapBitmap');
+
   /// Converts this icon to a [BytesMapBitmap].
   ///
   /// When [options] does not specify [MapBitmapOptions.width],
@@ -151,13 +368,23 @@ class MarkerIcon {
   /// or pixel ratio metadata is attached and the raw encoded bytes are passed
   /// through.
   ///
-  /// Throws [StateError] when the icon bytes are empty or the supplied bitmap
-  /// options are invalid.
+  /// Repeated calls with equal [options] on the same icon instance return the
+  /// identical [BytesMapBitmap] object. Google Maps compares descriptors by
+  /// identity, so this keeps rebuilt [Marker]s equal to their previous
+  /// versions and avoids redundant platform-side icon updates.
+  ///
+  /// Throws [StateError] when the supplied bitmap options are invalid.
   BytesMapBitmap toMapBitmap({
     MapBitmapOptions options = const MapBitmapOptions(),
   }) {
     _validateBitmapOptions(options);
 
+    final Map<MapBitmapOptions, BytesMapBitmap> cache =
+        _mapBitmapCache[this] ??= <MapBitmapOptions, BytesMapBitmap>{};
+    return cache.putIfAbsent(options, () => _createMapBitmap(options));
+  }
+
+  BytesMapBitmap _createMapBitmap(MapBitmapOptions options) {
     final double? resolvedImagePixelRatio = options.useRenderedPixelRatio
         ? pixelRatio
         : options.imagePixelRatio;
@@ -173,13 +400,6 @@ class MarkerIcon {
     }
 
     if (!hasExplicitBitmapMetadata) {
-      if (logicalSize.width <= 0 || logicalSize.height <= 0) {
-        throw StateError(
-          'MarkerIcon.logicalSize must be > 0 in both dimensions. '
-          'Got $logicalSize.',
-        );
-      }
-
       return BytesMapBitmap(
         bytes,
         width: logicalSize.width,
@@ -235,10 +455,26 @@ class MarkerIcon {
   }
 
   /// Builds a classic [Marker] using this icon.
+  ///
+  /// Throws [ArgumentError] when [base] is an [AdvancedMarker]. Advanced
+  /// markers extend [Marker], so they would otherwise flow through the
+  /// classic marker pipeline silently; use [toAdvancedMarker] or
+  /// [toAdvancedPinMarker] for them instead.
   Marker toMarker({
     required Marker base,
     MapBitmapOptions bitmapOptions = const MapBitmapOptions(),
-  }) => base.copyWith(iconParam: toBitmapDescriptor(options: bitmapOptions));
+  }) {
+    if (base is AdvancedMarker) {
+      throw ArgumentError.value(
+        base,
+        'base',
+        'AdvancedMarker cannot go through toMarker; use toAdvancedMarker or '
+            'toAdvancedPinMarker so it is delivered to the map as an '
+            'advanced marker.',
+      );
+    }
+    return base.copyWith(iconParam: toBitmapDescriptor(options: bitmapOptions));
+  }
 
   /// Builds an [AdvancedMarker] using this icon.
   ///
@@ -268,10 +504,6 @@ class MarkerIcon {
   );
 
   void _validateBitmapOptions(MapBitmapOptions options) {
-    if (bytes.isEmpty) {
-      throw StateError('MarkerIcon.bytes must not be empty.');
-    }
-
     if (options.bitmapScaling == MapBitmapScaling.none &&
         (options.width != null ||
             options.height != null ||
@@ -283,24 +515,35 @@ class MarkerIcon {
       );
     }
 
-    if (options.width != null && options.width! <= 0) {
+    if (options.useRenderedPixelRatio &&
+        (options.width != null ||
+            options.height != null ||
+            options.imagePixelRatio != null)) {
       throw StateError(
-        'MapBitmapOptions.width must be > 0 when provided. '
+        'MapBitmapOptions.useRenderedPixelRatio cannot be combined with '
+        'width, height, or imagePixelRatio.',
+      );
+    }
+
+    if (options.width != null && !_isPositiveFinite(options.width!)) {
+      throw StateError(
+        'MapBitmapOptions.width must be > 0 and finite when provided. '
         'Got ${options.width}.',
       );
     }
 
-    if (options.height != null && options.height! <= 0) {
+    if (options.height != null && !_isPositiveFinite(options.height!)) {
       throw StateError(
-        'MapBitmapOptions.height must be > 0 when provided. '
+        'MapBitmapOptions.height must be > 0 and finite when provided. '
         'Got ${options.height}.',
       );
     }
 
-    if (options.imagePixelRatio != null && options.imagePixelRatio! <= 0) {
+    if (options.imagePixelRatio != null &&
+        !_isPositiveFinite(options.imagePixelRatio!)) {
       throw StateError(
-        'MapBitmapOptions.imagePixelRatio must be > 0 when provided. '
-        'Got ${options.imagePixelRatio}.',
+        'MapBitmapOptions.imagePixelRatio must be > 0 and finite when '
+        'provided. Got ${options.imagePixelRatio}.',
       );
     }
   }
@@ -311,30 +554,104 @@ class MarkerIcon {
       return true;
     }
     return other is MarkerIcon &&
-        listEquals(bytes, other.bytes) &&
         logicalSize == other.logicalSize &&
-        pixelRatio == other.pixelRatio;
+        pixelRatio == other.pixelRatio &&
+        bytes.lengthInBytes == other.bytes.lengthInBytes &&
+        hashCode == other.hashCode &&
+        listEquals(bytes, other.bytes);
   }
 
+  /// Computed once per icon: the bytes are immutable, so the content hash
+  /// can never change.
   @override
-  int get hashCode =>
-      Object.hash(Object.hashAll(bytes), logicalSize, pixelRatio);
+  late final int hashCode = Object.hash(
+    logicalSize,
+    pixelRatio,
+    Object.hashAll(bytes),
+  );
+
+  @override
+  String toString() =>
+      'MarkerIcon(${logicalSize.width}x${logicalSize.height} '
+      '@${pixelRatio}x, ${bytes.lengthInBytes} bytes)';
 }
 
-/// Renders arbitrary widgets into PNG bytes off-screen.
+/// Renders self-contained, rasterizable snapshot widgets into PNG bytes
+/// off-screen.
 ///
 /// This is where the RenderView and PipelineOwner work happens, so the public
 /// API stays stable if Flutter tweaks internals again.
 class MarkerIconRenderer {
+  /// The shared renderer used by the widget extensions when no explicit
+  /// renderer is passed.
+  ///
+  /// Exposed so callers can clear its cache on logout or theme changes,
+  /// inspect cache size, or pre-render shared assets. Construct a dedicated
+  /// [MarkerIconRenderer] instead when different defaults or an isolated
+  /// cache are needed.
+  static final MarkerIconRenderer shared = MarkerIconRenderer();
+
   /// Creates a renderer that turns widgets into marker icons.
+  ///
+  /// Throws [ArgumentError] when [defaultLogicalSize] is not positive and
+  /// finite, [maxCacheEntries] is not positive, or [maxCacheBytes],
+  /// [maxConcurrentRenders], [maxConcurrentImageLoads], or [maxRasterPixels]
+  /// is provided but not positive.
   MarkerIconRenderer({
     this.defaultLogicalSize = const Size(96, 96),
     this.enableCaching = true,
     this.maxCacheEntries = 64,
     this.maxCacheBytes = 50 * 1024 * 1024,
-    this.initialImageDelay = const Duration(milliseconds: 16),
-    this.imageRepaintDelay = const Duration(milliseconds: 200),
-  }) : assert(maxCacheEntries > 0, 'maxCacheEntries must be > 0');
+    this.maxConcurrentRenders = 1,
+    this.maxConcurrentImageLoads = 1,
+    this.maxRasterPixels = 4 * 1024 * 1024,
+  }) {
+    if (!_isPositiveFinite(defaultLogicalSize.width) ||
+        !_isPositiveFinite(defaultLogicalSize.height)) {
+      throw ArgumentError.value(
+        defaultLogicalSize,
+        'defaultLogicalSize',
+        'width and height must both be > 0 and finite.',
+      );
+    }
+    if (maxCacheEntries <= 0) {
+      throw ArgumentError.value(
+        maxCacheEntries,
+        'maxCacheEntries',
+        'must be > 0.',
+      );
+    }
+    if (maxCacheBytes != null && maxCacheBytes! <= 0) {
+      throw ArgumentError.value(
+        maxCacheBytes,
+        'maxCacheBytes',
+        'must be > 0 when provided.',
+      );
+    }
+    if (maxConcurrentRenders != null && maxConcurrentRenders! <= 0) {
+      throw ArgumentError.value(
+        maxConcurrentRenders,
+        'maxConcurrentRenders',
+        'must be > 0 when provided.',
+      );
+    }
+    if (maxConcurrentImageLoads != null && maxConcurrentImageLoads! <= 0) {
+      throw ArgumentError.value(
+        maxConcurrentImageLoads,
+        'maxConcurrentImageLoads',
+        'must be > 0 when provided.',
+      );
+    }
+    if (maxRasterPixels != null && maxRasterPixels! <= 0) {
+      throw ArgumentError.value(
+        maxRasterPixels,
+        'maxRasterPixels',
+        'must be > 0 when provided.',
+      );
+    }
+    _renderGate = _FifoConcurrencyGate(maxConcurrentRenders);
+    _imageLoadGate = _FifoConcurrencyGate(maxConcurrentImageLoads);
+  }
 
   /// The default marker size used when [render] is called without a logical
   /// size.
@@ -348,39 +665,171 @@ class MarkerIconRenderer {
 
   /// The maximum total cache size in bytes.
   ///
-  /// Set to null to disable memory-based eviction.
+  /// This measures the encoded PNG bytes held by the cache, not the decoded
+  /// bitmap memory the platform map allocates for the icons. Set to null to
+  /// disable memory-based eviction. Icons larger than the limit are returned
+  /// to the caller but silently skipped by the cache.
   final int? maxCacheBytes;
 
-  /// Delay before checking whether images might still be loading.
-  final Duration initialImageDelay;
+  /// The maximum number of off-screen render trees allowed to exist at the
+  /// same time.
+  ///
+  /// Additional [render] calls wait for a slot in FIFO order. Every detached
+  /// render tree holds a widget tree, layers, and an uncompressed image, so
+  /// bounding concurrency bounds the transient memory of batch renders (for
+  /// example, prewarming 100 marker icons at once). Set to null to start all
+  /// renders immediately.
+  final int? maxConcurrentRenders;
 
-  /// Extra delay before repainting after images were detected.
-  final Duration imageRepaintDelay;
+  /// The maximum number of render jobs whose declared image dependencies may
+  /// be resolving or retained at the same time.
+  ///
+  /// Each permitted job resolves all of its dependencies concurrently and
+  /// keeps the permit until its marker capture finishes. This bounds decoded
+  /// native-image retention while allowing image-free renders to bypass a
+  /// stalled image source. Set to null to disable this FIFO gate.
+  final int? maxConcurrentImageLoads;
+
+  /// The maximum number of physical pixels a single render may rasterize,
+  /// computed from the independently rounded-up physical width and height.
+  ///
+  /// Renders above the budget throw [ArgumentError] instead of accidentally
+  /// allocating enormous bitmaps. The default of 4194304 equals a 2048 x
+  /// 2048 physical bitmap. Set to null to disable the check.
+  final int? maxRasterPixels;
 
   /// Current number of cached entries.
+  ///
+  /// Each cached combination of cache key, logical size, and pixel ratio
+  /// counts as one entry.
   int get cacheSize => _cache.length;
 
   /// Current cache size in bytes.
   int get cacheSizeInBytes => _currentCacheBytes;
 
-  final LinkedHashMap<Object, MarkerIcon> _cache =
-      LinkedHashMap<Object, MarkerIcon>();
+  final LinkedHashMap<_ResolvedCacheKey, MarkerIcon> _cache =
+      LinkedHashMap<_ResolvedCacheKey, MarkerIcon>();
   int _currentCacheBytes = 0;
-  final Map<Object, _PendingRender> _pending = <Object, _PendingRender>{};
-  int _globalCacheGeneration = 0;
-  final Map<Object, int> _keyGenerations = <Object, int>{};
+  final Map<_ResolvedCacheKey, _PendingRender> _pending =
+      <_ResolvedCacheKey, _PendingRender>{};
+  late final _FifoConcurrencyGate _renderGate;
+  late final _FifoConcurrencyGate _imageLoadGate;
 
   /// Renders [widget] into a [MarkerIcon].
   ///
   /// If [context] is supplied, the render tree inherits that context's
-  /// `MediaQuery`, theme, directionality, localizations, and asset bundle.
+  /// `MediaQuery`, theme, directionality, locale, and asset bundle. Only the
+  /// synchronous framework localization delegate is installed; application
+  /// localization resources are not copied or reloaded. Pass resolved
+  /// localized values into [widget].
+  /// These values are captured synchronously when [render] is called. Other
+  /// inherited scopes are not captured; wrap [widget] with any required
+  /// application-specific scope.
+  ///
+  /// [MarkerRenderOptions.prepare] runs on a real cache miss before declared
+  /// images are resolved and before a render slot is acquired. Include a
+  /// revision in [MarkerRenderOptions.cacheKey] for prepared data that changes
+  /// the output pixels.
+  ///
+  /// Cached entries are looked up by [MarkerRenderOptions.cacheKey]
+  /// combined with the resolved logical size and pixel ratio, so reusing one
+  /// cache key at a different size or pixel ratio always renders a fresh
+  /// icon. Content inputs that change the rendered output (theme brightness,
+  /// locale, selection state, ...) still belong in the cache key itself; see
+  /// [MarkerCacheKey].
   Future<MarkerIcon> render(
     Widget widget, {
     BuildContext? context,
-    WidgetBitmapRenderOptions options = const WidgetBitmapRenderOptions(),
+    MarkerRenderOptions options = const MarkerRenderOptions.defaults(),
   }) async {
-    final Object? key = enableCaching ? options.cacheKey : null;
-    final int? cacheToken = key != null ? _cacheTokenFor(key) : null;
+    final ui.FlutterView view = _resolveView(context);
+    final Size size = options.logicalSize ?? defaultLogicalSize;
+
+    if (!_isPositiveFinite(size.width) || !_isPositiveFinite(size.height)) {
+      throw ArgumentError.value(
+        size,
+        'options.logicalSize',
+        'logicalSize.width and logicalSize.height must both be > 0 and '
+            'finite.',
+      );
+    }
+
+    final double dpr = options.pixelRatio ?? view.devicePixelRatio;
+    if (!_isPositiveFinite(dpr)) {
+      throw ArgumentError.value(
+        dpr,
+        'options.pixelRatio',
+        'the resolved pixelRatio must be > 0 and finite.',
+      );
+    }
+
+    final double physicalWidth = size.width * dpr;
+    final double physicalHeight = size.height * dpr;
+    final double unroundedRasterPixels = physicalWidth * physicalHeight;
+    if (!_isPositiveFinite(physicalWidth) ||
+        !_isPositiveFinite(physicalHeight) ||
+        !_isPositiveFinite(unroundedRasterPixels)) {
+      throw ArgumentError.value(
+        size,
+        'options.logicalSize',
+        'the resolved physical dimensions and pixel count must be finite.',
+      );
+    }
+
+    final int? rasterBudget = maxRasterPixels;
+    if (rasterBudget != null) {
+      // OffsetLayer.toImage rounds each physical output dimension up. Reject
+      // obviously oversized dimensions before converting them to integers,
+      // then enforce the budget against the exact rounded output area.
+      if (physicalWidth > rasterBudget ||
+          physicalHeight > rasterBudget ||
+          unroundedRasterPixels > rasterBudget) {
+        throw ArgumentError.value(
+          size,
+          'options.logicalSize',
+          'Rendering ${size.width} x ${size.height} at pixel ratio $dpr '
+              'is above '
+              'maxRasterPixels ($rasterBudget). Reduce the marker size or '
+              'pixel ratio, or raise/disable maxRasterPixels.',
+        );
+      }
+
+      final int outputWidth = physicalWidth.ceil();
+      final int outputHeight = physicalHeight.ceil();
+      final int outputPixels = outputWidth * outputHeight;
+      if (outputPixels > rasterBudget) {
+        throw ArgumentError.value(
+          size,
+          'options.logicalSize',
+          'Rendering ${size.width} x ${size.height} at pixel ratio $dpr '
+              'produces $outputWidth x $outputHeight ($outputPixels physical '
+              'pixels), above maxRasterPixels ($rasterBudget). Reduce the '
+              'marker size or pixel ratio, or raise/disable maxRasterPixels.',
+        );
+      }
+    }
+
+    final List<MarkerImageDependency> imageDependencies =
+        List<MarkerImageDependency>.unmodifiable(options.imageDependencies);
+    for (final MarkerImageDependency dependency in imageDependencies) {
+      final Size? configurationSize = dependency.configurationSize;
+      if (configurationSize != null &&
+          (!configurationSize.width.isFinite ||
+              !configurationSize.height.isFinite ||
+              configurationSize.width < 0 ||
+              configurationSize.height < 0)) {
+        throw ArgumentError.value(
+          configurationSize,
+          'options.imageDependencies',
+          'configurationSize dimensions must be finite and non-negative.',
+        );
+      }
+    }
+
+    final Object? cacheKey = enableCaching ? options.cacheKey : null;
+    final _ResolvedCacheKey? key = cacheKey == null
+        ? null
+        : (cacheKey, size, dpr);
 
     if (key != null) {
       final MarkerIcon? cached = _cache[key];
@@ -390,104 +839,13 @@ class MarkerIconRenderer {
       }
 
       final _PendingRender? pending = _pending[key];
-      if (pending != null && pending.cacheToken == cacheToken) {
+      if (pending != null && !pending.stale) {
         return pending.future;
       }
     }
 
-    final ui.FlutterView view = _resolveView(context);
-    final Size size = options.logicalSize ?? defaultLogicalSize;
-
-    if (size.width <= 0 || size.height <= 0) {
-      throw ArgumentError.value(
-        size,
-        'options.logicalSize',
-        'logicalSize.width and logicalSize.height must both be > 0.',
-      );
-    }
-
-    if (options.pixelRatio != null && options.pixelRatio! <= 0) {
-      throw ArgumentError.value(
-        options.pixelRatio,
-        'options.pixelRatio',
-        'pixelRatio must be > 0 when provided.',
-      );
-    }
-
-    final double dpr = options.pixelRatio ?? view.devicePixelRatio;
-
-    final Future<MarkerIcon> renderFuture = _doRender(
-      widget,
-      context: context,
-      view: view,
-      size: size,
-      dpr: dpr,
-      waitForImages: options.waitForImages,
-      initialImageDelay: options.initialImageDelay ?? initialImageDelay,
-      imageRepaintDelay: options.imageRepaintDelay ?? imageRepaintDelay,
-    );
-
-    if (key != null && cacheToken != null) {
-      _pending[key] = _PendingRender(
-        future: renderFuture,
-        cacheToken: cacheToken,
-      );
-    }
-
-    try {
-      final MarkerIcon icon = await renderFuture;
-
-      if (key != null &&
-          cacheToken != null &&
-          cacheToken == _cacheTokenFor(key)) {
-        _put(key, icon);
-      }
-
-      return icon;
-    } finally {
-      if (key != null) {
-        final _PendingRender? pending = _pending[key];
-        if (pending != null &&
-            pending.cacheToken == cacheToken &&
-            identical(pending.future, renderFuture)) {
-          _pending.remove(key);
-        }
-      }
-    }
-  }
-
-  /// Clears the internal cache completely.
-  void clearCache() {
-    _cache.clear();
-    _currentCacheBytes = 0;
-    _globalCacheGeneration += 1;
-  }
-
-  /// Removes one cached entry by [key].
-  void removeFromCache(Object key) {
-    final MarkerIcon? removed = _cache.remove(key);
-    if (removed != null) {
-      _currentCacheBytes -= removed.sizeInBytes;
-    }
-    _keyGenerations[key] = (_keyGenerations[key] ?? 0) + 1;
-  }
-
-  /// Returns whether [key] is currently cached.
-  bool isCached(Object key) => _cache.containsKey(key);
-
-  /// Returns a cached icon without updating LRU order.
-  MarkerIcon? peekCache(Object key) => _cache[key];
-
-  Future<MarkerIcon> _doRender(
-    Widget widget, {
-    required BuildContext? context,
-    required ui.FlutterView view,
-    required Size size,
-    required double dpr,
-    required bool waitForImages,
-    required Duration initialImageDelay,
-    required Duration imageRepaintDelay,
-  }) async {
+    // Capture inherited rendering state synchronously. No BuildContext is
+    // retained or read after preparation, image decoding, or queue waits.
     final Widget wrapped = _wrapWidget(
       widget,
       context: context,
@@ -495,15 +853,217 @@ class MarkerIconRenderer {
       logicalSize: size,
       devicePixelRatio: dpr,
     );
+    final ImageConfiguration imageConfiguration = _imageConfigurationFor(
+      context: context,
+      dpr: dpr,
+    );
 
+    final Future<MarkerIcon> renderFuture = _renderWithImageDependencies(
+      wrapped,
+      view: view,
+      size: size,
+      dpr: dpr,
+      prepare: options.prepare,
+      imageConfiguration: imageConfiguration,
+      imageDependencies: imageDependencies,
+    );
+
+    _PendingRender? pendingEntry;
+    if (key != null) {
+      pendingEntry = _PendingRender(renderFuture);
+      _pending[key] = pendingEntry;
+    }
+
+    try {
+      final MarkerIcon icon = await renderFuture;
+
+      if (key != null && !pendingEntry!.stale) {
+        _put(key, icon);
+      }
+
+      return icon;
+    } finally {
+      if (key != null && identical(_pending[key], pendingEntry)) {
+        _pending.remove(key);
+      }
+    }
+  }
+
+  /// Clears the internal cache completely.
+  ///
+  /// In-flight renders keep completing and their futures still resolve, but
+  /// they no longer repopulate the cache.
+  void clearCache() {
+    _cache.clear();
+    _currentCacheBytes = 0;
+    for (final _PendingRender pending in _pending.values) {
+      pending.stale = true;
+    }
+  }
+
+  /// Removes every cached variant of [key], across all sizes and pixel
+  /// ratios.
+  ///
+  /// In-flight renders for [key] keep completing, but they no longer
+  /// repopulate the cache.
+  void removeFromCache(Object key) {
+    _cache.removeWhere((_ResolvedCacheKey resolvedKey, MarkerIcon icon) {
+      if (resolvedKey.$1 == key) {
+        _currentCacheBytes -= icon.sizeInBytes;
+        return true;
+      }
+      return false;
+    });
+
+    for (final MapEntry<_ResolvedCacheKey, _PendingRender> entry
+        in _pending.entries) {
+      if (entry.key.$1 == key) {
+        entry.value.stale = true;
+      }
+    }
+  }
+
+  /// Returns whether any variant of [key] is currently cached.
+  bool isCached(Object key) =>
+      _cache.keys.any((_ResolvedCacheKey resolvedKey) => resolvedKey.$1 == key);
+
+  /// Returns the most recently used cached variant of [key] without updating
+  /// LRU order.
+  MarkerIcon? peekCache(Object key) {
+    MarkerIcon? match;
+    for (final MapEntry<_ResolvedCacheKey, MarkerIcon> entry
+        in _cache.entries) {
+      if (entry.key.$1 == key) {
+        match = entry.value;
+      }
+    }
+    return match;
+  }
+
+  /// Runs [startRender] inside the FIFO concurrency gate.
+  ///
+  /// New arrivals queue whenever a limit is set and either all slots are
+  /// taken or earlier callers are already waiting, so waiters are served
+  /// strictly in order.
+  Future<MarkerIcon> _withRenderSlot(
+    Future<MarkerIcon> Function() startRender,
+  ) => _renderGate.run(startRender);
+
+  /// Prepares asynchronous content, then resolves declared image dependencies
+  /// and renders inside the FIFO concurrency gate.
+  ///
+  /// Image-backed jobs use their own bounded gate and retain that permit until
+  /// capture completes. This bounds decoded native-image retention without
+  /// letting a stalled image block image-free renders. The widget's own lookup
+  /// receives the decoded frame synchronously during the single paint pass.
+  Future<MarkerIcon> _renderWithImageDependencies(
+    Widget wrapped, {
+    required ui.FlutterView view,
+    required Size size,
+    required double dpr,
+    required Future<void> Function()? prepare,
+    required ImageConfiguration imageConfiguration,
+    required List<MarkerImageDependency> imageDependencies,
+  }) async {
+    await prepare?.call();
+
+    Future<MarkerIcon> resolveAndRender() async {
+      final List<(ImageStream, ImageStreamListener)> retained =
+          <(ImageStream, ImageStreamListener)>[];
+      try {
+        if (imageDependencies.isNotEmpty) {
+          await _resolveImageDependencies(
+            imageDependencies,
+            imageConfiguration,
+            retained,
+          );
+        }
+        return await _withRenderSlot(
+          () => _doRender(wrapped, view: view, size: size, dpr: dpr),
+        );
+      } finally {
+        for (final (ImageStream stream, ImageStreamListener listener)
+            in retained) {
+          stream.removeListener(listener);
+        }
+      }
+    }
+
+    if (imageDependencies.isEmpty) {
+      return _withRenderSlot(
+        () => _doRender(wrapped, view: view, size: size, dpr: dpr),
+      );
+    }
+    return _imageLoadGate.run(resolveAndRender);
+  }
+
+  /// Mirrors the environment [_wrapWidget] builds, so dependency resolution
+  /// and the widget's own image lookups produce the same cache keys.
+  ImageConfiguration _imageConfigurationFor({
+    required BuildContext? context,
+    required double dpr,
+  }) {
+    return ImageConfiguration(
+      bundle: context != null ? DefaultAssetBundle.of(context) : null,
+      devicePixelRatio: dpr,
+      locale: context != null ? Localizations.maybeLocaleOf(context) : null,
+      textDirection: context != null
+          ? (Directionality.maybeOf(context) ?? TextDirection.ltr)
+          : TextDirection.ltr,
+      platform: defaultTargetPlatform,
+    );
+  }
+
+  /// Starts a decode for every provider and completes when all of them have
+  /// delivered a frame. Streams and listeners are appended to [retained];
+  /// the caller removes the listeners after capture.
+  Future<void> _resolveImageDependencies(
+    List<MarkerImageDependency> dependencies,
+    ImageConfiguration configuration,
+    List<(ImageStream, ImageStreamListener)> retained,
+  ) {
+    final List<Future<void>> decodes = <Future<void>>[];
+    for (final MarkerImageDependency dependency in dependencies) {
+      final ImageProvider<Object> provider = dependency.provider;
+      final Completer<void> decode = Completer<void>();
+      decodes.add(decode.future);
+
+      final ImageStream stream = provider.resolve(
+        configuration.copyWith(size: dependency.configurationSize),
+      );
+      final ImageStreamListener listener = ImageStreamListener(
+        (ImageInfo image, bool synchronousCall) {
+          image.dispose();
+          if (!decode.isCompleted) {
+            decode.complete();
+          }
+        },
+        onError: (Object error, StackTrace? stackTrace) {
+          if (!decode.isCompleted) {
+            decode.completeError(
+              MarkerImageLoadException(provider, error, stackTrace),
+              stackTrace,
+            );
+          }
+        },
+      );
+      stream.addListener(listener);
+      retained.add((stream, listener));
+    }
+    return Future.wait(decodes, eagerError: true);
+  }
+
+  Future<MarkerIcon> _doRender(
+    Widget wrapped, {
+    required ui.FlutterView view,
+    required Size size,
+    required double dpr,
+  }) async {
     final Uint8List bytes = await _renderOffScreen(
       wrapped,
       view: view,
       logicalSize: size,
       pixelRatio: dpr,
-      waitForImages: waitForImages,
-      initialImageDelay: initialImageDelay,
-      imageRepaintDelay: imageRepaintDelay,
     );
 
     return MarkerIcon(bytes: bytes, logicalSize: size, pixelRatio: dpr);
@@ -517,21 +1077,29 @@ class MarkerIconRenderer {
       }
     }
 
-    final ui.PlatformDispatcher dispatcher =
-        WidgetsBinding.instance.platformDispatcher;
+    final ui.PlatformDispatcher dispatcher = ui.PlatformDispatcher.instance;
 
     final ui.FlutterView? implicitView = dispatcher.implicitView;
     if (implicitView != null) {
       return implicitView;
     }
 
-    if (dispatcher.views.isNotEmpty) {
-      return dispatcher.views.first;
+    final Iterable<ui.FlutterView> views = dispatcher.views;
+    if (views.length == 1) {
+      return views.first;
+    }
+
+    if (views.isEmpty) {
+      throw StateError(
+        'No FlutterView is available. Ensure WidgetsFlutterBinding is '
+        'initialized before calling MarkerIconRenderer.render.',
+      );
     }
 
     throw StateError(
-      'No FlutterView is available. Ensure WidgetsFlutterBinding is '
-      'initialized before calling MarkerIconRenderer.render.',
+      'Multiple FlutterViews are available and none is the implicit view. '
+      'Pass a BuildContext to render so the renderer can resolve the view '
+      'the marker belongs to.',
     );
   }
 
@@ -546,14 +1114,25 @@ class MarkerIconRenderer {
         ? (MediaQuery.maybeOf(context) ?? MediaQueryData.fromView(view))
         : MediaQueryData.fromView(view);
 
+    // Screen obstructions (notches, keyboards, hinges) belong to the source
+    // screen, not to an off-screen marker; accessibility data (text scaling,
+    // brightness, bold text) is kept.
     final MediaQueryData mediaQuery = baseMediaQuery.copyWith(
       size: logicalSize,
       devicePixelRatio: devicePixelRatio,
+      padding: EdgeInsets.zero,
+      viewPadding: EdgeInsets.zero,
+      viewInsets: EdgeInsets.zero,
+      systemGestureInsets: EdgeInsets.zero,
+      displayFeatures: const <ui.DisplayFeature>[],
     );
 
     final TextDirection textDirection = context != null
         ? (Directionality.maybeOf(context) ?? TextDirection.ltr)
         : TextDirection.ltr;
+    final Locale? locale = context != null
+        ? Localizations.maybeLocaleOf(context)
+        : null;
 
     Widget current;
     if (context != null) {
@@ -561,9 +1140,6 @@ class MarkerIconRenderer {
         context,
         Material(type: MaterialType.transparency, child: child),
       );
-      if (Localizations.maybeLocaleOf(context) != null) {
-        current = Localizations.override(context: context, child: current);
-      }
       current = DefaultAssetBundle(
         bundle: DefaultAssetBundle.of(context),
         child: current,
@@ -573,6 +1149,20 @@ class MarkerIconRenderer {
     }
 
     current = Directionality(textDirection: textDirection, child: current);
+    if (locale != null) {
+      // Copy only the locale through Flutter's known synchronous framework
+      // delegate. Application delegates are not reloaded in the detached tree:
+      // async delegates would initially build an empty box and can globally
+      // defer the first frame. The inner Directionality above preserves the
+      // exact direction captured from the source context.
+      current = Localizations(
+        locale: locale,
+        delegates: const <LocalizationsDelegate<dynamic>>[
+          DefaultWidgetsLocalizations.delegate,
+        ],
+        child: current,
+      );
+    }
     current = MediaQuery(data: mediaQuery, child: current);
 
     return SizedBox(
@@ -587,119 +1177,116 @@ class MarkerIconRenderer {
     required ui.FlutterView view,
     required Size logicalSize,
     required double pixelRatio,
-    required bool waitForImages,
-    required Duration initialImageDelay,
-    required Duration imageRepaintDelay,
   }) async {
     final RenderRepaintBoundary repaintBoundary = RenderRepaintBoundary();
-
-    final ViewConfiguration configuration = ViewConfiguration(
-      logicalConstraints: BoxConstraints.tight(logicalSize),
-      physicalConstraints: BoxConstraints.tight(logicalSize * pixelRatio),
-      devicePixelRatio: pixelRatio,
-    );
-
-    final RenderView renderView = RenderView(
-      view: view,
-      configuration: configuration,
-      child: repaintBoundary,
-    );
-
     final PipelineOwner pipelineOwner = PipelineOwner();
     final FocusManager focusManager = FocusManager();
     final BuildOwner buildOwner = BuildOwner(focusManager: focusManager);
 
-    pipelineOwner.rootNode = renderView;
-    renderView.prepareInitialFrame();
-
-    final RenderObjectToWidgetElement<RenderBox> rootElement =
-        RenderObjectToWidgetAdapter<RenderBox>(
-          container: repaintBoundary,
-          child: widget,
-        ).attachToRenderTree(buildOwner);
+    RenderView? renderView;
+    RenderObjectToWidgetElement<RenderBox>? rootElement;
 
     try {
+      final ViewConfiguration configuration = ViewConfiguration(
+        logicalConstraints: BoxConstraints.tight(logicalSize),
+        physicalConstraints: BoxConstraints.tight(logicalSize * pixelRatio),
+        devicePixelRatio: pixelRatio,
+      );
+
+      renderView = RenderView(
+        view: view,
+        configuration: configuration,
+        child: repaintBoundary,
+      );
+
+      pipelineOwner.rootNode = renderView;
+      renderView.prepareInitialFrame();
+
+      rootElement = RenderObjectToWidgetAdapter<RenderBox>(
+        container: repaintBoundary,
+        child: widget,
+      ).attachToRenderTree(buildOwner);
+
       buildOwner.buildScope(rootElement);
       pipelineOwner.flushLayout();
       pipelineOwner.flushCompositingBits();
       pipelineOwner.flushPaint();
 
-      if (waitForImages) {
-        await Future<void>.delayed(initialImageDelay);
-
-        if (_hasImagesBelow(repaintBoundary)) {
-          await Future<void>.delayed(imageRepaintDelay);
-
-          buildOwner.buildScope(rootElement);
-          pipelineOwner
-            ..flushLayout()
-            ..flushCompositingBits()
-            ..flushPaint();
-        }
-      }
-
       final ui.Image image = await repaintBoundary.toImage(
         pixelRatio: pixelRatio,
       );
-      final ByteData? byteData = await image.toByteData(
-        format: ui.ImageByteFormat.png,
-      );
 
-      image.dispose();
+      try {
+        final ByteData? byteData = await image.toByteData(
+          format: ui.ImageByteFormat.png,
+        );
 
-      if (byteData == null) {
-        throw StateError('Failed to convert widget to marker image bytes.');
+        if (byteData == null) {
+          throw StateError('Failed to convert widget to marker image bytes.');
+        }
+
+        return Uint8List.sublistView(byteData);
+      } finally {
+        image.dispose();
       }
-
-      return byteData.buffer.asUint8List();
     } finally {
-      buildOwner.finalizeTree();
-      pipelineOwner.rootNode = null;
-      renderView.dispose();
-      pipelineOwner.dispose();
-      focusManager.dispose();
+      _tearDownRenderTree(
+        buildOwner: buildOwner,
+        pipelineOwner: pipelineOwner,
+        focusManager: focusManager,
+        repaintBoundary: repaintBoundary,
+        renderView: renderView,
+        rootElement: rootElement,
+      );
     }
   }
 
-  bool _hasImagesBelow(RenderObject root) {
-    var found = false;
-
-    void visitor(RenderObject child) {
-      if (found) {
-        return;
+  void _tearDownRenderTree({
+    required BuildOwner buildOwner,
+    required PipelineOwner pipelineOwner,
+    required FocusManager focusManager,
+    required RenderRepaintBoundary repaintBoundary,
+    required RenderView? renderView,
+    required RenderObjectToWidgetElement<RenderBox>? rootElement,
+  }) {
+    try {
+      if (rootElement != null) {
+        // Re-attaching with a null child only schedules the removal; the
+        // buildScope call executes it, deactivating every descendant so
+        // finalizeTree can unmount them and run State.dispose.
+        RenderObjectToWidgetAdapter<RenderBox>(
+          container: repaintBoundary,
+        ).attachToRenderTree(buildOwner, rootElement);
+        buildOwner.buildScope(rootElement);
       }
-
-      if (child is RenderImage && child.image == null) {
-        found = true;
-        return;
-      }
-
-      if (child is RenderDecoratedBox) {
-        final Decoration decoration = child.decoration;
-        if (decoration is BoxDecoration && decoration.image != null) {
-          found = true;
-          return;
+      buildOwner.finalizeTree();
+    } finally {
+      pipelineOwner.rootNode = null;
+      try {
+        renderView?.child = null;
+        renderView?.dispose();
+      } finally {
+        try {
+          repaintBoundary.dispose();
+        } finally {
+          try {
+            pipelineOwner.dispose();
+          } finally {
+            focusManager.dispose();
+          }
         }
       }
-
-      child.visitChildren(visitor);
     }
-
-    root.visitChildren(visitor);
-    return found;
   }
 
-  void _bump(Object key) {
+  void _bump(_ResolvedCacheKey key) {
     final MarkerIcon? icon = _cache.remove(key);
     if (icon != null) {
       _cache[key] = icon;
     }
   }
 
-  int _cacheTokenFor(Object key) =>
-      Object.hash(_globalCacheGeneration, _keyGenerations[key] ?? 0);
-
-  void _put(Object key, MarkerIcon icon) {
+  void _put(_ResolvedCacheKey key, MarkerIcon icon) {
     final MarkerIcon? existing = _cache.remove(key);
     if (existing != null) {
       _currentCacheBytes -= existing.sizeInBytes;
@@ -714,7 +1301,7 @@ class MarkerIconRenderer {
     if (maxCacheBytes != null) {
       while (_currentCacheBytes + iconBytes > maxCacheBytes! &&
           _cache.isNotEmpty) {
-        final Object oldestKey = _cache.keys.first;
+        final _ResolvedCacheKey oldestKey = _cache.keys.first;
         final MarkerIcon? evicted = _cache.remove(oldestKey);
         if (evicted != null) {
           _currentCacheBytes -= evicted.sizeInBytes;
@@ -723,7 +1310,7 @@ class MarkerIconRenderer {
     }
 
     while (_cache.length >= maxCacheEntries && _cache.isNotEmpty) {
-      final Object oldestKey = _cache.keys.first;
+      final _ResolvedCacheKey oldestKey = _cache.keys.first;
       final MarkerIcon? evicted = _cache.remove(oldestKey);
       if (evicted != null) {
         _currentCacheBytes -= evicted.sizeInBytes;
@@ -735,28 +1322,67 @@ class MarkerIconRenderer {
   }
 }
 
-class _PendingRender {
-  const _PendingRender({required this.future, required this.cacheToken});
+/// A fair asynchronous semaphore that transfers occupied permits directly to
+/// queued waiters, preventing late arrivals from oversubscribing the limit.
+final class _FifoConcurrencyGate {
+  _FifoConcurrencyGate(this.limit);
 
-  final Future<MarkerIcon> future;
-  final int cacheToken;
+  final int? limit;
+  int _active = 0;
+  final Queue<Completer<void>> _queue = Queue<Completer<void>>();
+
+  Future<T> run<T>(Future<T> Function() action) async {
+    final int? effectiveLimit = limit;
+    if (effectiveLimit == null) {
+      return action();
+    }
+
+    if (_active < effectiveLimit && _queue.isEmpty) {
+      _active += 1;
+    } else {
+      final Completer<void> permit = Completer<void>();
+      _queue.add(permit);
+      await permit.future;
+    }
+
+    try {
+      return await action();
+    } finally {
+      if (_queue.isNotEmpty) {
+        // The permit stays counted while ownership moves to the oldest waiter.
+        // A new arrival therefore cannot take it during the resume microtask.
+        _queue.removeFirst().complete();
+      } else {
+        _active -= 1;
+      }
+    }
+  }
 }
 
-/// The shared renderer used by the widget extensions when no explicit
-/// [MarkerIconRenderer] is provided.
-///
-/// Expose this so callers can clear its cache on logout or theme changes,
-/// inspect cache size, or pre-render shared assets.
-final MarkerIconRenderer defaultMarkerIconRenderer = MarkerIconRenderer();
+/// Cache identity: the caller's key combined with the resolved render
+/// geometry, so one key can never return an icon rendered at another size or
+/// pixel ratio.
+typedef _ResolvedCacheKey = (Object cacheKey, Size logicalSize, double dpr);
+
+class _PendingRender {
+  _PendingRender(this.future);
+
+  final Future<MarkerIcon> future;
+
+  /// Set when the cache is invalidated while this render is in flight; a
+  /// stale render still resolves for its callers but is neither joined by
+  /// new calls nor written back into the cache.
+  bool stale = false;
+}
 
 Future<MarkerIcon> _renderMarkerIcon(
   Widget widget, {
   BuildContext? context,
   MarkerIconRenderer? renderer,
-  WidgetBitmapRenderOptions renderOptions = const WidgetBitmapRenderOptions(),
+  MarkerRenderOptions renderOptions = const MarkerRenderOptions.defaults(),
 }) {
   final MarkerIconRenderer effectiveRenderer =
-      renderer ?? defaultMarkerIconRenderer;
+      renderer ?? MarkerIconRenderer.shared;
   return effectiveRenderer.render(
     widget,
     context: context,
@@ -764,14 +1390,14 @@ Future<MarkerIcon> _renderMarkerIcon(
   );
 }
 
-/// Extension helpers that render any widget into Google Maps bitmap and marker
-/// types.
+/// Extension helpers that render a self-contained, rasterizable snapshot
+/// widget into Google Maps bitmap and marker types.
 extension WidgetMarkerExtension on Widget {
   /// Converts this widget to a [BitmapDescriptor].
   Future<BitmapDescriptor> toBitmapDescriptor({
     BuildContext? context,
     MarkerIconRenderer? renderer,
-    WidgetBitmapRenderOptions renderOptions = const WidgetBitmapRenderOptions(),
+    MarkerRenderOptions renderOptions = const MarkerRenderOptions.defaults(),
     MapBitmapOptions bitmapOptions = const MapBitmapOptions(),
   }) async {
     final MarkerIcon icon = await toMarkerIcon(
@@ -786,7 +1412,7 @@ extension WidgetMarkerExtension on Widget {
   Future<BytesMapBitmap> toMapBitmap({
     BuildContext? context,
     MarkerIconRenderer? renderer,
-    WidgetBitmapRenderOptions renderOptions = const WidgetBitmapRenderOptions(),
+    MarkerRenderOptions renderOptions = const MarkerRenderOptions.defaults(),
     MapBitmapOptions bitmapOptions = const MapBitmapOptions(),
   }) async {
     final MarkerIcon icon = await toMarkerIcon(
@@ -802,7 +1428,7 @@ extension WidgetMarkerExtension on Widget {
   Future<BytesMapBitmap> toGroundOverlayBitmap({
     BuildContext? context,
     MarkerIconRenderer? renderer,
-    WidgetBitmapRenderOptions renderOptions = const WidgetBitmapRenderOptions(),
+    MarkerRenderOptions renderOptions = const MarkerRenderOptions.defaults(),
   }) async {
     final MarkerIcon icon = await toMarkerIcon(
       context: context,
@@ -816,7 +1442,7 @@ extension WidgetMarkerExtension on Widget {
   Future<BitmapGlyph> toBitmapGlyph({
     BuildContext? context,
     MarkerIconRenderer? renderer,
-    WidgetBitmapRenderOptions renderOptions = const WidgetBitmapRenderOptions(),
+    MarkerRenderOptions renderOptions = const MarkerRenderOptions.defaults(),
     MapBitmapOptions bitmapOptions = const MapBitmapOptions(),
   }) async {
     final MarkerIcon icon = await toMarkerIcon(
@@ -836,7 +1462,7 @@ extension WidgetMarkerExtension on Widget {
     Color? backgroundColor,
     Color? borderColor,
     MarkerIconRenderer? renderer,
-    WidgetBitmapRenderOptions renderOptions = const WidgetBitmapRenderOptions(),
+    MarkerRenderOptions renderOptions = const MarkerRenderOptions.defaults(),
     MapBitmapOptions bitmapOptions = const MapBitmapOptions(),
   }) async {
     final MarkerIcon icon = await toMarkerIcon(
@@ -855,7 +1481,7 @@ extension WidgetMarkerExtension on Widget {
   Future<MarkerIcon> toMarkerIcon({
     BuildContext? context,
     MarkerIconRenderer? renderer,
-    WidgetBitmapRenderOptions renderOptions = const WidgetBitmapRenderOptions(),
+    MarkerRenderOptions renderOptions = const MarkerRenderOptions.defaults(),
   }) {
     return _renderMarkerIcon(
       this,
@@ -870,7 +1496,7 @@ extension WidgetMarkerExtension on Widget {
     required Marker base,
     BuildContext? context,
     MarkerIconRenderer? renderer,
-    WidgetBitmapRenderOptions renderOptions = const WidgetBitmapRenderOptions(),
+    MarkerRenderOptions renderOptions = const MarkerRenderOptions.defaults(),
     MapBitmapOptions bitmapOptions = const MapBitmapOptions(),
   }) async {
     final MarkerIcon icon = await toMarkerIcon(
@@ -886,7 +1512,7 @@ extension WidgetMarkerExtension on Widget {
     required AdvancedMarker base,
     BuildContext? context,
     MarkerIconRenderer? renderer,
-    WidgetBitmapRenderOptions renderOptions = const WidgetBitmapRenderOptions(),
+    MarkerRenderOptions renderOptions = const MarkerRenderOptions.defaults(),
     MapBitmapOptions bitmapOptions = const MapBitmapOptions(),
   }) async {
     final MarkerIcon icon = await toMarkerIcon(
@@ -908,7 +1534,7 @@ extension WidgetMarkerExtension on Widget {
     Color? backgroundColor,
     Color? borderColor,
     MarkerIconRenderer? renderer,
-    WidgetBitmapRenderOptions renderOptions = const WidgetBitmapRenderOptions(),
+    MarkerRenderOptions renderOptions = const MarkerRenderOptions.defaults(),
     MapBitmapOptions bitmapOptions = const MapBitmapOptions(),
   }) async {
     final MarkerIcon icon = await toMarkerIcon(
@@ -923,47 +1549,4 @@ extension WidgetMarkerExtension on Widget {
       bitmapOptions: bitmapOptions,
     );
   }
-}
-
-/// Builds a marker cache key that captures the common visual inputs.
-///
-/// Use [extra] for any additional state that changes the rendered output, such
-/// as selection, status, or avatar version.
-String buildMarkerCacheKey({
-  required Object id,
-  required Size logicalSize,
-  required double pixelRatio,
-  ui.Brightness? brightness,
-  Locale? locale,
-  Object? extra,
-}) {
-  final String brightnessPart = brightness?.name ?? 'none';
-  final String localePart = locale?.toLanguageTag() ?? 'xx';
-  final String extraPart = extra?.toString() ?? 'none';
-  return 'id=$id'
-      '|size=${logicalSize.width}x${logicalSize.height}'
-      '|dpr=$pixelRatio'
-      '|brightness=$brightnessPart'
-      '|locale=$localePart'
-      '|extra=$extraPart';
-}
-
-/// Builds a cache key for cluster markers or badges.
-String buildClusterCacheKey({
-  required int count,
-  required Size logicalSize,
-  required double pixelRatio,
-  ui.Brightness? brightness,
-  Locale? locale,
-  Object? extra,
-}) {
-  final String brightnessPart = brightness?.name ?? 'none';
-  final String localePart = locale?.toLanguageTag() ?? 'xx';
-  final String extraPart = extra?.toString() ?? 'none';
-  return 'count=$count'
-      '|size=${logicalSize.width}x${logicalSize.height}'
-      '|dpr=$pixelRatio'
-      '|brightness=$brightnessPart'
-      '|locale=$localePart'
-      '|extra=$extraPart';
 }

@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -50,17 +52,55 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
     'GOOGLE_MAPS_ADVANCED_MAP_ID',
   );
 
-  final Completer<GoogleMapController> _controller =
-      Completer<GoogleMapController>();
-
   _DemoMode _mode = _DemoMode.classicMarker;
   Set<Marker> _markers = <Marker>{};
   Set<GroundOverlay> _groundOverlays = <GroundOverlay>{};
   bool _isLoading = false;
+  int _loadGeneration = 0;
   String _statusMessage = 'Classic marker built with Widget.toMarker().';
 
   String? get _advancedMapId =>
       _advancedMapIdValue.isEmpty ? null : _advancedMapIdValue;
+
+  MemoryImage? _avatarImage;
+
+  /// Draws a tiny avatar once and wraps it in a [MemoryImage], standing in
+  /// for the avatars a real app would load with [NetworkImage].
+  Future<MemoryImage> _ensureAvatarImage(Color color) async {
+    final MemoryImage? existing = _avatarImage;
+    if (existing != null) {
+      return existing;
+    }
+
+    final ui.PictureRecorder recorder = ui.PictureRecorder();
+    final Canvas canvas = Canvas(recorder);
+    canvas
+      ..drawCircle(const Offset(16, 16), 16, Paint()..color = color)
+      ..drawCircle(const Offset(16, 12), 6, Paint()..color = Colors.white)
+      ..drawCircle(const Offset(16, 30), 11, Paint()..color = Colors.white);
+    final ui.Picture picture = recorder.endRecording();
+    late final ByteData byteData;
+    try {
+      final ui.Image image = await picture.toImage(32, 32);
+      try {
+        final ByteData? encoded = await image.toByteData(
+          format: ui.ImageByteFormat.png,
+        );
+        if (encoded == null) {
+          throw StateError('Failed to encode the example avatar.');
+        }
+        byteData = encoded;
+      } finally {
+        image.dispose();
+      }
+    } finally {
+      picture.dispose();
+    }
+
+    final MemoryImage provider = MemoryImage(Uint8List.sublistView(byteData));
+    _avatarImage = provider;
+    return provider;
+  }
 
   @override
   void didChangeDependencies() {
@@ -71,25 +111,35 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
   }
 
   Future<void> _loadModeContent() async {
-    if (_isLoading) {
-      return;
-    }
+    final int generation = ++_loadGeneration;
+    final _DemoMode requestedMode = _mode;
 
     setState(() {
       _isLoading = true;
     });
 
     final ThemeData theme = Theme.of(context);
-    final double dpr = MediaQuery.devicePixelRatioOf(context);
+    final Locale? locale = Localizations.maybeLocaleOf(context);
 
     try {
-      switch (_mode) {
+      switch (requestedMode) {
         case _DemoMode.classicMarker:
+          final MemoryImage avatar = await _ensureAvatarImage(
+            theme.colorScheme.tertiary,
+          );
+          if (!mounted) {
+            return;
+          }
+          if (generation != _loadGeneration) {
+            return;
+          }
+
           final Marker marker =
               await _ClassicMarkerCard(
                 title: 'Classic marker',
                 subtitle: 'Widget.toMarker()',
                 color: theme.colorScheme.primary,
+                avatar: avatar,
               ).toMarker(
                 context: context,
                 base: const Marker(
@@ -101,19 +151,20 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
                   ),
                   zIndexInt: 1,
                 ),
-                renderOptions: WidgetBitmapRenderOptions(
+                renderOptions: MarkerRenderOptions(
                   logicalSize: const Size(104, 104),
-                  cacheKey: buildMarkerCacheKey(
-                    id: 'classic-marker',
-                    logicalSize: const Size(104, 104),
-                    pixelRatio: dpr,
+                  cacheKey: MarkerCacheKey(
+                    'classic-marker',
                     brightness: theme.brightness,
-                    locale: Localizations.maybeLocaleOf(context),
+                    locale: locale,
                   ),
+                  // The avatar is declared, so its provider is decoded and
+                  // retained before the standard Image paints.
+                  imageDependencies: [MarkerImageDependency(avatar)],
                 ),
               );
 
-          if (!mounted) {
+          if (!_isCurrentLoad(generation)) {
             return;
           }
 
@@ -124,7 +175,7 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
           });
         case _DemoMode.advancedPin:
           if (_advancedMapId == null) {
-            if (!mounted) {
+            if (!_isCurrentLoad(generation)) {
               return;
             }
 
@@ -157,12 +208,10 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
                 ),
                 backgroundColor: theme.colorScheme.surface,
                 borderColor: theme.colorScheme.primary,
-                renderOptions: WidgetBitmapRenderOptions(
+                renderOptions: MarkerRenderOptions(
                   logicalSize: const Size(28, 28),
-                  cacheKey: buildMarkerCacheKey(
-                    id: 'advanced-pin',
-                    logicalSize: const Size(28, 28),
-                    pixelRatio: dpr,
+                  cacheKey: MarkerCacheKey(
+                    'advanced-pin',
                     brightness: theme.brightness,
                     locale: Localizations.maybeLocaleOf(context),
                   ),
@@ -170,7 +219,7 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
                 bitmapOptions: const MapBitmapOptions(width: 28, height: 28),
               );
 
-          if (!mounted) {
+          if (!_isCurrentLoad(generation)) {
             return;
           }
 
@@ -187,12 +236,10 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
                 label: 'Widget Ground Overlay',
               ).toGroundOverlayBitmap(
                 context: context,
-                renderOptions: WidgetBitmapRenderOptions(
+                renderOptions: MarkerRenderOptions(
                   logicalSize: const Size(180, 120),
-                  cacheKey: buildMarkerCacheKey(
-                    id: 'ground-overlay',
-                    logicalSize: const Size(180, 120),
-                    pixelRatio: dpr,
+                  cacheKey: MarkerCacheKey(
+                    'ground-overlay',
                     brightness: theme.brightness,
                     locale: Localizations.maybeLocaleOf(context),
                   ),
@@ -210,7 +257,7 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
             zIndex: 1,
           );
 
-          if (!mounted) {
+          if (!_isCurrentLoad(generation)) {
             return;
           }
 
@@ -223,7 +270,7 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
       }
     } catch (error, stackTrace) {
       debugPrint('Failed to build example content: $error\n$stackTrace');
-      if (!mounted) {
+      if (!_isCurrentLoad(generation)) {
         return;
       }
       setState(() {
@@ -232,13 +279,16 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
         _statusMessage = 'Failed to build example content: $error';
       });
     } finally {
-      if (mounted) {
+      if (_isCurrentLoad(generation)) {
         setState(() {
           _isLoading = false;
         });
       }
     }
   }
+
+  bool _isCurrentLoad(int generation) =>
+      mounted && generation == _loadGeneration;
 
   void _onModeChanged(Set<_DemoMode> selection) {
     final _DemoMode nextMode = selection.first;
@@ -260,7 +310,7 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
         _mode == _DemoMode.advancedPin && _advancedMapId != null;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('marker_widget v2 example')),
+      appBar: AppBar(title: const Text('marker_widget example')),
       body: Column(
         children: <Widget>[
           Padding(
@@ -309,12 +359,11 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
             ),
           Expanded(
             child: GoogleMap(
+              key: ValueKey<(bool, String?)>((
+                useAdvancedMarkers,
+                _advancedMapId,
+              )),
               initialCameraPosition: _initialCameraPosition,
-              onMapCreated: (GoogleMapController controller) {
-                if (!_controller.isCompleted) {
-                  _controller.complete(controller);
-                }
-              },
               mapId: useAdvancedMarkers ? _advancedMapId : null,
               markerType: useAdvancedMarkers
                   ? GoogleMapMarkerType.advancedMarker
@@ -348,11 +397,13 @@ class _ClassicMarkerCard extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.color,
+    required this.avatar,
   });
 
   final String title;
   final String subtitle;
   final Color color;
+  final ImageProvider avatar;
 
   @override
   Widget build(BuildContext context) {
@@ -370,7 +421,15 @@ class _ClassicMarkerCard extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[
-            const Icon(Icons.place, color: Colors.white, size: 26),
+            Container(
+              width: 26,
+              height: 26,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 2),
+                image: DecorationImage(image: avatar, fit: BoxFit.cover),
+              ),
+            ),
             const SizedBox(height: 8),
             Text(
               title,

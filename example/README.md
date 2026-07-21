@@ -1,16 +1,22 @@
-# marker_widget_example
+# marker_widget example
 
-A new Flutter project.
+Runnable demonstrations of classic markers, advanced marker pins, and ground
+overlays generated with `marker_widget`.
 
-## Getting Started
+The example targets Android, iOS, and web, matching the platforms supported by
+`google_maps_flutter`. Configure the normal Google Maps API keys for the target
+platform, then run:
 
-This project is a starting point for a Flutter application.
+```sh
+flutter pub get
+flutter run
+```
 
-A few resources to get you started if this is your first Flutter project:
+Advanced markers require a cloud map ID. Supply it at build time:
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+```sh
+flutter run --dart-define=GOOGLE_MAPS_ADVANCED_MAP_ID=your-map-id
+```
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+On web, also load the Google Maps JavaScript `marker` library in
+`web/index.html`.

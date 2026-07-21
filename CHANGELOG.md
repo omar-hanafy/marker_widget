@@ -3,6 +3,161 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - 2026-07-21
+
+Production rebuild of the widget-to-marker pipeline. The public package and its
+agent plugin expose the focused v3 model.
+
+### Breaking
+
+- Raised minimums: Dart `^3.12.0`, Flutter `>=3.44.0`, and
+  `google_maps_flutter ^2.17.1`.
+- `MarkerRenderOptions` is a non-const immutable value that defensively copies
+  `imageDependencies`; `const MarkerRenderOptions.defaults()` represents the
+  default configuration.
+- `MapBitmapOptions`, `MarkerRenderOptions`, and `MarkerIcon` are final value
+  classes, so their equality cannot ignore subclass state.
+- `MarkerIcon.toMarker` and the widget `toMarker` extension throw
+  `ArgumentError` when the base is an `AdvancedMarker`; advanced marker values
+  go through `toAdvancedMarker` or `toAdvancedPinMarker`.
+- Context capture installs only Flutter's synchronous framework localization
+  delegate. The locale and directionality are preserved, while application
+  localization resources must be passed into the self-contained marker widget.
+- Dimensions and ratios are validated as positive and finite everywhere:
+  NaN and infinity are rejected with descriptive `ArgumentError` /
+  `StateError` instead of propagating to the platform.
+- Contextless rendering in a multi-view app with no implicit view now throws
+  a `StateError` asking for a `BuildContext`.
+
+### Added
+
+- `MarkerImageDependency`, `MarkerRenderOptions.imageDependencies`, and
+  `MarkerImageLoadException` for deterministic provider decode readiness.
+- `MarkerRenderOptions.prepare` for runtime font loading or asynchronous data
+  that must complete before image resolution and capture.
+- `MarkerCacheKey` and `MarkerCacheKey.cluster` structured cache keys.
+- `MarkerIconRenderer.shared`, `maxConcurrentRenders`,
+  `maxConcurrentImageLoads`, and `maxRasterPixels`.
+- Re-exports of the Google Maps types used by the package API:
+  `Marker`, `MarkerId`, `LatLng`, `LatLngBounds`, `InfoWindow`,
+  `BitmapDescriptor`, `BytesMapBitmap`, `MapBitmapScaling`,
+  `GroundOverlay`, and `GroundOverlayId`.
+- A diagnostic `MarkerIcon.toString` containing size, pixel ratio, and byte
+  count.
+
+### Changed
+
+- Cache identity now combines the cache key with the resolved logical size
+  and pixel ratio, so one key can never return an icon rendered at another
+  size or pixel ratio (sequentially or concurrently). `removeFromCache`
+  removes every variant of a key, `isCached` matches any variant,
+  `peekCache` returns the most recently used variant, and `cacheSize` counts
+  each variant as one entry.
+- `MarkerIcon.toMapBitmap` / `toBitmapDescriptor` return the identical
+  `BytesMapBitmap` instance for repeated calls with equal options on the same
+  icon. Rebuilt markers therefore stay equal to their previous versions and
+  avoid redundant platform-side icon updates.
+- Screen geometry no longer leaks into rendered markers: safe-area padding,
+  keyboard insets, system gesture insets, and display features are zeroed in
+  the render tree's `MediaQuery`, so a `SafeArea` inside a marker renders
+  edge to edge. Accessibility values (text scaling, brightness, bold text)
+  are still inherited.
+- Image-backed jobs use a separate FIFO permit from dependency resolution
+  through capture. This bounds retained decoded images without blocking
+  image-free renders behind a stalled provider. Declared dependencies within
+  one job still fail eagerly.
+- Physical-pixel budgets use the exact independently rounded output width and
+  height that Flutter rasterizes.
+- The render environment is captured synchronously on a cache miss, so a
+  queued render keeps the call-time theme, locale, directionality, media
+  settings, and asset bundle even if the source context later unmounts.
+- Google Maps types are imported and re-exported through the supported
+  `google_maps_flutter` facade. The package has no direct platform-interface
+  dependency.
+- The only runtime dependencies are Flutter and `google_maps_flutter`; value
+  equality is implemented directly.
+
+### Fixed
+
+- The off-screen render tree is now fully unmounted after capture, so
+  `State.dispose` runs for stateful marker widgets and resources they hold
+  (timers, controllers, subscriptions) are released per render. All manually
+  created render objects and the captured `ui.Image` are disposed even when a
+  setup step or PNG encoding throws.
+- `removeFromCache` no longer grows internal bookkeeping for every key it is
+  ever called with; invalidation state now lives only while a render is in
+  flight.
+- `MapBitmapOptions.useRenderedPixelRatio` exclusivity is enforced at runtime,
+  with identical behavior in debug and release builds.
+- FIFO permits transfer directly to queued waiters without a late-arrival
+  oversubscription window.
+- Render options validate image configuration metadata before cache lookup or
+  in-flight deduplication.
+
+## [2.1.0-dev.1] - 2026-07-21
+
+Hardening prerelease. All changes are backward compatible for correct usage;
+several misuses that previously produced silently wrong output now throw.
+
+### Fixed
+
+- The off-screen render tree is now fully unmounted after capture, so
+  `State.dispose` runs for stateful marker widgets and resources they hold
+  (timers, controllers, subscriptions) are released per render. All manually
+  created render objects and the captured `ui.Image` are disposed even when a
+  setup step or PNG encoding throws.
+- Cache identity now combines the cache key with the resolved logical size and
+  pixel ratio. Reusing one `cacheKey` at a different size or pixel ratio
+  (sequentially or concurrently) renders a fresh icon instead of returning the
+  previously cached, wrongly sized one.
+- Screen geometry no longer leaks into rendered markers: safe-area padding,
+  keyboard insets, system gesture insets, and display features are zeroed in
+  the render tree's `MediaQuery`, so a `SafeArea` inside a marker renders edge
+  to edge. Accessibility values (text scaling, brightness, bold text) are
+  still inherited.
+- `removeFromCache` no longer grows internal bookkeeping for every key it is
+  ever called with; invalidation state now lives only while a render is in
+  flight.
+
+### Added
+
+- `MarkerIconRenderer.maxConcurrentRenders` (default 3): a FIFO gate on how
+  many off-screen render trees exist at once, bounding transient memory during
+  batch rendering. Set to null to disable.
+- `MarkerIconRenderer.maxRasterPixels` (default 4194304, one 2048 x 2048
+  physical bitmap): renders whose physical pixel count exceeds the budget
+  throw `ArgumentError` instead of allocating enormous bitmaps. Set to null to
+  disable.
+- Re-exports of the remaining Google Maps types used by the package API:
+  `Marker`, `MarkerId`, `LatLng`, `LatLngBounds`, `InfoWindow`,
+  `BitmapDescriptor`, `MapBitmap`, `BytesMapBitmap`, `MapBitmapScaling`,
+  `GroundOverlay`, and `GroundOverlayId`. The whole marker flow now works from
+  the `marker_widget` import alone.
+
+### Changed
+
+- `MarkerIcon.toMapBitmap` / `toBitmapDescriptor` return the identical
+  `BytesMapBitmap` instance for repeated calls with equal options on the same
+  icon. Rebuilt markers therefore stay equal to their previous versions and
+  google_maps_flutter no longer pushes redundant platform-side icon updates
+  for unchanged markers.
+- Dimensions and ratios are validated as positive and finite everywhere:
+  NaN and infinity are rejected with descriptive `ArgumentError` /
+  `StateError` instead of propagating to the platform.
+- `MarkerIconRenderer` constructor configuration is validated at runtime with
+  `ArgumentError` (previously a debug-only assert covered `maxCacheEntries`
+  only).
+- `MarkerIcon.toMarker` and the widget `toMarker` extension throw
+  `ArgumentError` when the base is an `AdvancedMarker`, which would otherwise
+  silently flow through the classic marker pipeline; use `toAdvancedMarker` or
+  `toAdvancedPinMarker`.
+- Contextless rendering in a multi-view app with no implicit view now throws a
+  `StateError` asking for a `BuildContext` instead of picking an arbitrary
+  `FlutterView`.
+- `removeFromCache` removes every size/pixel-ratio variant of the key,
+  `isCached` matches any variant, `peekCache` returns the most recently used
+  variant, and `cacheSize` counts each variant as one entry.
+
 ## [2.0.1] - 2026-07-18
 
 ### Added
@@ -93,16 +248,16 @@ No runtime, API, or dependency changes.
 - **Memory-based cache eviction**: New `maxCacheBytes` parameter (default 50 MB) on `MarkerIconRenderer` to prevent unbounded memory growth.
 - **Concurrent render deduplication**: Multiple simultaneous calls with the same `cacheKey` now share a single render operation instead of duplicating work.
 - **Cache introspection**:
-  - `MarkerIconRenderer.cacheSize` — current entry count.
-  - `MarkerIconRenderer.cacheSizeInBytes` — current memory usage.
-  - `MarkerIconRenderer.isCached(key)` — check if a key exists.
-  - `MarkerIconRenderer.peekCache(key)` — get without LRU bump.
+  - `MarkerIconRenderer.cacheSize` - current entry count.
+  - `MarkerIconRenderer.cacheSizeInBytes` - current memory usage.
+  - `MarkerIconRenderer.isCached(key)` - check if a key exists.
+  - `MarkerIconRenderer.peekCache(key)` - get without LRU bump.
 - **New extension methods on `Widget`**:
-  - `toMapBitmap()` — returns `BytesMapBitmap` directly.
-  - `toMarkerIcon()` — returns `MarkerIcon` for storage and later conversion.
+  - `toMapBitmap()` - returns `BytesMapBitmap` directly.
+  - `toMarkerIcon()` - returns `MarkerIcon` for storage and later conversion.
 - **New standalone functions**:
-  - `widgetToMapBitmap()` — convenience without `BuildContext`, returns `BytesMapBitmap`.
-  - `widgetToMarkerIcon()` — convenience without `BuildContext`, returns `MarkerIcon`.
+  - `widgetToMapBitmap()` - convenience without `BuildContext`, returns `BytesMapBitmap`.
+  - `widgetToMarkerIcon()` - convenience without `BuildContext`, returns `MarkerIcon`.
 - **`@immutable` annotation** on `MarkerIcon` for correctness.
 - **Enhanced documentation**: Added "Render Once, Reuse Everywhere" pattern examples in README and class docs.
 

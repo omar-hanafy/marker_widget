@@ -13,13 +13,12 @@ shipped in the pub.dev archive; it is installed from this Git repository.
 
 | Component | Type | When it activates |
 |---|---|---|
-| `using-marker-widget` | skill | Adding widget-rendered markers, advanced pins, or ground overlays; choosing among the to* methods; sizing with WidgetBitmapRenderOptions vs MapBitmapOptions; advanced-marker wiring (mapId, markerType, web marker library) |
-| `optimizing-marker-widget` | skill | Jank, memory growth, repeated renders, or stale icons after theme/locale/selection changes; cacheKey design, invalidation, cache bounds, preloading |
-| `troubleshooting-marker-widget` | skill | Blank markers, missing network images, wrong size or blurry output, invisible advanced markers, StateError/ArgumentError messages, hanging widget tests |
-| `migrating-marker-widget-v1-to-v2` | skill | Upgrading 1.x to 2.x; compile errors mentioning toMarkerBitmap, widgetToMarkerBitmap, MarkerIconScalingMode, scalingMode, renderedDpr |
-| `marker-widget-reviewer` | agent (Claude Code only) | Read-only audit of a codebase for marker_widget misuse (uncached hot-path renders, incomplete cache keys, async-image blanks, missing advanced-marker prerequisites) |
-| `references/` | shared docs | v2 API quick reference and the 12-item review checklist used by the skills and the agent |
-| `evals/` + `graders/` | eval suite | Regression tests for skill triggering and migration quality (`claude plugin eval`) |
+| `using-marker-widget` | skill | Adding widget-rendered markers, advanced pins, or ground overlays; choosing among the to* methods; sizing with MarkerRenderOptions vs MapBitmapOptions; declaring imageDependencies; advanced-marker wiring (mapId, markerType, web marker library) |
+| `optimizing-marker-widget` | skill | Jank, memory growth, repeated renders, or stale icons after theme/locale/selection changes; MarkerCacheKey design, invalidation, cache bounds, preloading |
+| `troubleshooting-marker-widget` | skill | Blank markers, missing network images, MarkerImageLoadException, wrong size or blurry output, invisible advanced markers, StateError/ArgumentError messages, hanging widget tests |
+| `marker-widget-reviewer` | agent (Claude Code only) | Read-only audit of a codebase for marker_widget misuse (uncached hot-path renders, incomplete cache keys, undeclared image dependencies, missing advanced-marker prerequisites) |
+| `references/` | shared docs | v3 API quick reference and the 12-item review checklist used by the skills and the agent |
+| `evals/` + `graders/` | eval suite | Regression tests for skill triggering and answer quality (`claude plugin eval`) |
 
 There are no hooks, no MCP servers, no network access, and no executable scripts in
 this plugin; every component is instructions and reference text. The reviewer agent is
@@ -37,8 +36,7 @@ then `/plugin install marker-widget@marker-widget`.
 
 Skills auto-trigger from context; invoke explicitly as
 `/marker-widget:using-marker-widget`, `/marker-widget:optimizing-marker-widget`,
-`/marker-widget:troubleshooting-marker-widget`, or
-`/marker-widget:migrating-marker-widget-v1-to-v2`. The reviewer agent is available as
+or `/marker-widget:troubleshooting-marker-widget`. The reviewer agent is available as
 `marker-widget:marker-widget-reviewer` (Claude delegates to it automatically for
 marker_widget audit requests, or @-mention it).
 
@@ -81,14 +79,12 @@ and the items found clean. Do not edit anything.
 - "Show each driver on the map as a rounded avatar badge rendered from a widget."
 - "Markers re-render every time the camera moves and the map janks. Fix it."
 - "My marker avatars from Image.network are blank white circles."
-- "Upgrade this app from marker_widget 1.1.0 to 2.0.0."
 - Claude Code: "Review this codebase for marker_widget problems." (delegates to the
   reviewer agent)
 
-## Compatibility
+## Supported versions
 
-- Package coverage: marker_widget 2.x APIs; the migration skill covers 1.0.0/1.1.0 to
-  2.x (the only breaking hop released so far).
+- Package coverage: marker_widget 3.x APIs.
 - Verified against Claude Code 2.1.x and codex-cli 0.144.x. Skills use the shared
   SKILL.md format (agentskills.io); frontmatter is restricted to fields both products
   accept.
@@ -111,9 +107,8 @@ and the items found clean. Do not edit anything.
   `.claude-plugin/plugin.json` and `.codex-plugin/plugin.json` to the new pubspec
   version. `dart run tool/validate_agent_plugin.dart` (repo root) enforces this and
   the structural rules, and runs in CI.
-- New breaking package version: add a dedicated `migrating-marker-widget-vX-to-vY`
-  skill (keep the old ones), extract the exact old API from the previous release tag,
-  and add a fixture pair under `evals/fixtures/` plus an eval case.
+- Keep the plugin focused on the current package API. Add only current names,
+  current instructions, and current-source fixtures.
 - New skill checklist: kebab-case directory == frontmatter `name`; `description`
   states trigger conditions only; essentials inline, depth in `references/`; add a
   positive eval case and keep the negative-control case passing.

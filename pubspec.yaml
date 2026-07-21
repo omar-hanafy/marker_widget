@@ -2,7 +2,7 @@ name: marker_widget
 description: >
   Render Flutter widgets into google_maps_flutter bitmaps, glyphs, markers,
   and ground overlays with caching and modern Flutter View APIs.
-version: 2.0.1
+version: 3.0.0
 
 homepage: https://github.com/omar-hanafy/marker_widget
 repository: https://github.com/omar-hanafy/marker_widget
@@ -22,15 +22,13 @@ platforms:
   web:
 
 environment:
-  sdk: ^3.10.0
-  flutter: ">=3.41.4"
+  sdk: ^3.12.0
+  flutter: ">=3.44.0"
 
 dependencies:
-  equatable: ^2.0.0
   flutter:
     sdk: flutter
-  google_maps_flutter: ^2.15.0
-  google_maps_flutter_platform_interface: ^2.14.2
+  google_maps_flutter: ^2.17.1
 
 dev_dependencies:
   flutter_lints: ^6.0.0
