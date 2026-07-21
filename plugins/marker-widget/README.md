@@ -13,12 +13,13 @@ shipped in the pub.dev archive; it is installed from this Git repository.
 
 | Component | Type | When it activates |
 |---|---|---|
-| `using-marker-widget` | skill | Adding widget-rendered markers, advanced pins, or ground overlays; choosing among the to* methods; sizing with WidgetBitmapRenderOptions vs MapBitmapOptions; advanced-marker wiring (mapId, markerType, web marker library) |
-| `optimizing-marker-widget` | skill | Jank, memory growth, repeated renders, or stale icons after theme/locale/selection changes; cacheKey design, invalidation, cache bounds, preloading |
-| `troubleshooting-marker-widget` | skill | Blank markers, missing network images, wrong size or blurry output, invisible advanced markers, StateError/ArgumentError messages, hanging widget tests |
+| `using-marker-widget` | skill | Adding widget-rendered markers, advanced pins, or ground overlays; choosing among the to* methods; sizing with MarkerRenderOptions vs MapBitmapOptions; declaring imageDependencies; advanced-marker wiring (mapId, markerType, web marker library) |
+| `optimizing-marker-widget` | skill | Jank, memory growth, repeated renders, or stale icons after theme/locale/selection changes; MarkerCacheKey design, invalidation, cache bounds, preloading |
+| `troubleshooting-marker-widget` | skill | Blank markers, missing network images, MarkerImageLoadException, wrong size or blurry output, invisible advanced markers, StateError/ArgumentError messages, hanging widget tests |
 | `migrating-marker-widget-v1-to-v2` | skill | Upgrading 1.x to 2.x; compile errors mentioning toMarkerBitmap, widgetToMarkerBitmap, MarkerIconScalingMode, scalingMode, renderedDpr |
-| `marker-widget-reviewer` | agent (Claude Code only) | Read-only audit of a codebase for marker_widget misuse (uncached hot-path renders, incomplete cache keys, async-image blanks, missing advanced-marker prerequisites) |
-| `references/` | shared docs | v2 API quick reference and the 12-item review checklist used by the skills and the agent |
+| `migrating-marker-widget-v2-to-v3` | skill | Upgrading 2.x to 3.x; compile errors mentioning WidgetBitmapRenderOptions, waitForImages, imageRepaintDelay, buildMarkerCacheKey, defaultMarkerIconRenderer |
+| `marker-widget-reviewer` | agent (Claude Code only) | Read-only audit of a codebase for marker_widget misuse (uncached hot-path renders, incomplete cache keys, undeclared image dependencies, missing advanced-marker prerequisites) |
+| `references/` | shared docs | v3 API quick reference and the 12-item review checklist used by the skills and the agent |
 | `evals/` + `graders/` | eval suite | Regression tests for skill triggering and migration quality (`claude plugin eval`) |
 
 There are no hooks, no MCP servers, no network access, and no executable scripts in
@@ -37,8 +38,9 @@ then `/plugin install marker-widget@marker-widget`.
 
 Skills auto-trigger from context; invoke explicitly as
 `/marker-widget:using-marker-widget`, `/marker-widget:optimizing-marker-widget`,
-`/marker-widget:troubleshooting-marker-widget`, or
-`/marker-widget:migrating-marker-widget-v1-to-v2`. The reviewer agent is available as
+`/marker-widget:troubleshooting-marker-widget`,
+`/marker-widget:migrating-marker-widget-v1-to-v2`, or
+`/marker-widget:migrating-marker-widget-v2-to-v3`. The reviewer agent is available as
 `marker-widget:marker-widget-reviewer` (Claude delegates to it automatically for
 marker_widget audit requests, or @-mention it).
 
@@ -81,14 +83,14 @@ and the items found clean. Do not edit anything.
 - "Show each driver on the map as a rounded avatar badge rendered from a widget."
 - "Markers re-render every time the camera moves and the map janks. Fix it."
 - "My marker avatars from Image.network are blank white circles."
-- "Upgrade this app from marker_widget 1.1.0 to 2.0.0."
+- "Upgrade this app from marker_widget 2.0.1 to 3.0.0."
 - Claude Code: "Review this codebase for marker_widget problems." (delegates to the
   reviewer agent)
 
 ## Compatibility
 
-- Package coverage: marker_widget 2.x APIs; the migration skill covers 1.0.0/1.1.0 to
-  2.x (the only breaking hop released so far).
+- Package coverage: marker_widget 3.x APIs; the migration skills cover 1.0.0/1.1.0 to
+  2.x and 2.x to 3.x (run them in sequence for a 1.x app targeting 3.x).
 - Verified against Claude Code 2.1.x and codex-cli 0.144.x. Skills use the shared
   SKILL.md format (agentskills.io); frontmatter is restricted to fields both products
   accept.

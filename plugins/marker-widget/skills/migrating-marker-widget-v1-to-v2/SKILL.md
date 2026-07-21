@@ -5,7 +5,10 @@ description: Use when upgrading a project from marker_widget 1.x to 2.x, or when
 
 # Migrating marker_widget v1.x to v2.x
 
-Supported path: 1.0.0 or 1.1.0 -> any 2.x. This is the only breaking hop that exists;
+Supported path: 1.0.0 or 1.1.0 -> any 2.x. If the project should end up on the
+current 3.x, complete this migration to 2.x first, then continue with
+marker-widget:migrating-marker-widget-v2-to-v3 (do not jump 1.x -> 3.x in one
+pass; the intermediate 2.x state is what makes each hop mechanical).
 1.0.0 -> 1.1.0 was additive. The migration is mostly mechanical renames plus reshaping
 flat parameters into two option objects, with three decisions that need judgment
 (scaling mode, custom renderer defaults, contextless helpers).
