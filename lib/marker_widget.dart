@@ -8,6 +8,9 @@
 /// * [toBitmapDescriptor] extension on [Widget] for easy conversion.
 /// * [MarkerIconRenderer] for advanced control and caching.
 /// * [MapBitmapOptions] and [MarkerRenderOptions] for explicit sizing.
+/// * [MarkerRenderOptions.imageDependencies] for deterministic image
+///   readiness (images are decoded before capture, never blank).
+/// * [MarkerCacheKey] for collision-safe cache identity.
 /// * Helpers for [PinConfig], [BitmapGlyph], and advanced markers.
 ///
 /// The Google Maps types used by this package's API ([Marker],
