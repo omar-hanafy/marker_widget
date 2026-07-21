@@ -47,6 +47,9 @@ Decision points:
 
 - Many markers sharing one static icon: render ONE `MarkerIcon`, reuse it per marker.
   Do not call `toMarker` per item.
+- `toMarker` accepts classic `Marker` bases only; an `AdvancedMarker` base throws
+  `ArgumentError` (2.1+). Route advanced markers through `toAdvancedMarker`/
+  `toAdvancedPinMarker`.
 - iOS in scope and considering `toAdvancedPinMarker`/`toPinConfig`: upstream iOS bug
   can make PinConfig pins fail to render (issuetracker.google.com/issues/370536110).
   Prefer `toAdvancedMarker` with a full widget icon, or flag the risk.
@@ -89,9 +92,12 @@ All three are required or advanced markers silently do not appear:
 
 Import advanced types (`AdvancedMarker`, `PinConfig`, `BitmapGlyph`,
 `MarkerCollisionBehavior`, ...) from `package:marker_widget/marker_widget.dart`; do not
-add a direct dependency on google_maps_flutter_platform_interface. Keep a classic-marker
-fallback when `mapId` may be absent (see `example/lib/main.dart` in the package repo for
-the gating pattern).
+add a direct dependency on google_maps_flutter_platform_interface. Since 2.1 the
+classic construction types (`Marker`, `MarkerId`, `LatLng`, `InfoWindow`,
+`BitmapDescriptor`, `GroundOverlay`, ...) are re-exported too, so marker-building code
+can use the marker_widget import alone. Keep a classic-marker fallback when `mapId`
+may be absent (see `example/lib/main.dart` in the package repo for the gating
+pattern).
 
 ## Step 6: Verify
 

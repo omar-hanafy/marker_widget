@@ -3,6 +3,70 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0-dev.1] - 2026-07-21
+
+Hardening prerelease. All changes are backward compatible for correct usage;
+several misuses that previously produced silently wrong output now throw.
+
+### Fixed
+
+- The off-screen render tree is now fully unmounted after capture, so
+  `State.dispose` runs for stateful marker widgets and resources they hold
+  (timers, controllers, subscriptions) are released per render. All manually
+  created render objects and the captured `ui.Image` are disposed even when a
+  setup step or PNG encoding throws.
+- Cache identity now combines the cache key with the resolved logical size and
+  pixel ratio. Reusing one `cacheKey` at a different size or pixel ratio
+  (sequentially or concurrently) renders a fresh icon instead of returning the
+  previously cached, wrongly sized one.
+- Screen geometry no longer leaks into rendered markers: safe-area padding,
+  keyboard insets, system gesture insets, and display features are zeroed in
+  the render tree's `MediaQuery`, so a `SafeArea` inside a marker renders edge
+  to edge. Accessibility values (text scaling, brightness, bold text) are
+  still inherited.
+- `removeFromCache` no longer grows internal bookkeeping for every key it is
+  ever called with; invalidation state now lives only while a render is in
+  flight.
+
+### Added
+
+- `MarkerIconRenderer.maxConcurrentRenders` (default 3): a FIFO gate on how
+  many off-screen render trees exist at once, bounding transient memory during
+  batch rendering. Set to null to disable.
+- `MarkerIconRenderer.maxRasterPixels` (default 4194304, one 2048 x 2048
+  physical bitmap): renders whose physical pixel count exceeds the budget
+  throw `ArgumentError` instead of allocating enormous bitmaps. Set to null to
+  disable.
+- Re-exports of the remaining Google Maps types used by the package API:
+  `Marker`, `MarkerId`, `LatLng`, `LatLngBounds`, `InfoWindow`,
+  `BitmapDescriptor`, `MapBitmap`, `BytesMapBitmap`, `MapBitmapScaling`,
+  `GroundOverlay`, and `GroundOverlayId`. The whole marker flow now works from
+  the `marker_widget` import alone.
+
+### Changed
+
+- `MarkerIcon.toMapBitmap` / `toBitmapDescriptor` return the identical
+  `BytesMapBitmap` instance for repeated calls with equal options on the same
+  icon. Rebuilt markers therefore stay equal to their previous versions and
+  google_maps_flutter no longer pushes redundant platform-side icon updates
+  for unchanged markers.
+- Dimensions and ratios are validated as positive and finite everywhere:
+  NaN and infinity are rejected with descriptive `ArgumentError` /
+  `StateError` instead of propagating to the platform.
+- `MarkerIconRenderer` constructor configuration is validated at runtime with
+  `ArgumentError` (previously a debug-only assert covered `maxCacheEntries`
+  only).
+- `MarkerIcon.toMarker` and the widget `toMarker` extension throw
+  `ArgumentError` when the base is an `AdvancedMarker`, which would otherwise
+  silently flow through the classic marker pipeline; use `toAdvancedMarker` or
+  `toAdvancedPinMarker`.
+- Contextless rendering in a multi-view app with no implicit view now throws a
+  `StateError` asking for a `BuildContext` instead of picking an arbitrary
+  `FlutterView`.
+- `removeFromCache` removes every size/pixel-ratio variant of the key,
+  `isCached` matches any variant, `peekCache` returns the most recently used
+  variant, and `cacheSize` counts each variant as one entry.
+
 ## [2.0.1] - 2026-07-18
 
 ### Added

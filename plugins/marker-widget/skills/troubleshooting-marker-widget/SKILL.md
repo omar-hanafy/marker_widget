@@ -28,12 +28,16 @@ marker-widget:migrating-marker-widget-v1-to-v2.
 | Message contains | Cause | Fix |
 |---|---|---|
 | `MapBitmapScaling.none cannot be combined with width, height, or imagePixelRatio` | Raw scaling plus size metadata (includes `pixelPerfect()` with `none`) | Drop the size fields, or use `MapBitmapScaling.auto`; for ground overlays call `toGroundOverlayBitmap()` |
-| `MapBitmapOptions.width must be > 0` (also height / imagePixelRatio variants) | Zero or negative option value, often from a computed size | Guard the computation; sizes must be positive |
-| `logicalSize.width and logicalSize.height must both be > 0` | `WidgetBitmapRenderOptions(logicalSize: ...)` computed as zero (e.g. from an unlaid-out box) | Pass an explicit positive design size, not a measured one |
-| `pixelRatio must be > 0 when provided` | Bad explicit pixelRatio | Remove it (defaults to view DPR) |
+| `MapBitmapOptions.width must be > 0` (also height / imagePixelRatio variants) | Zero, negative, NaN, or infinite option value, often from a computed size | Guard the computation; sizes must be positive and finite |
+| `logicalSize.width and logicalSize.height must both be > 0` | `WidgetBitmapRenderOptions(logicalSize: ...)` computed as zero or NaN (e.g. from an unlaid-out box) | Pass an explicit positive design size, not a measured one |
+| `pixelRatio must be > 0` | Bad explicit pixelRatio (zero, negative, NaN, infinite) | Remove it (defaults to view DPR) |
+| `above maxRasterPixels` | Render size times pixel ratio squared exceeds the raster budget (default one 2048x2048 physical bitmap, 2.1+) | Shrink `logicalSize`/`pixelRatio`; raise or disable `maxRasterPixels` only deliberately |
+| `AdvancedMarker cannot go through toMarker` | An `AdvancedMarker` passed as `base:` to classic `toMarker` (guarded since 2.1) | Use `toAdvancedMarker` / `toAdvancedPinMarker` |
+| `must be > 0.` / `must not be negative.` from `MarkerIconRenderer(...)` | Invalid renderer configuration (validated at runtime since 2.1) | Fix the constructor arguments |
 | `MarkerIcon.bytes must not be empty` | Hand-built `MarkerIcon` with empty bytes (renderer never produces this) | Fix the construction site |
-| `MarkerIcon.logicalSize must be > 0 in both dimensions` | Hand-built `MarkerIcon` with degenerate size converted with default options | Store the real rendered size |
+| `MarkerIcon.logicalSize must be > 0` | Hand-built `MarkerIcon` with degenerate size converted with default options | Store the real rendered size |
 | `No FlutterView is available` | Render before `WidgetsFlutterBinding.ensureInitialized()`, or in a background isolate / headless context | Render on the UI isolate after binding init; never inside `compute`/`Isolate.run` |
+| `Multiple FlutterViews are available` | Contextless render in a multi-view (desktop embedding) app with no implicit view (2.1+) | Pass `context:` so the renderer resolves the marker's view |
 | `Failed to convert widget to marker image bytes` | PNG encode returned null (rare; graphics backend issue) | Retry path/report; check for headless or test environment |
 
 ## Visual symptoms
@@ -47,8 +51,10 @@ marker-widget:migrating-marker-widget-v1-to-v2.
 | Marker crisp but size differs per device | `pixelPerfect()`/`imagePixelRatio` path in use | See `bitmapOptions` | That is the documented tradeoff; use default options for device-independent size |
 | Icon ignores dark mode / locale / selection | Cache key missing that input | Key lacks `brightness`/`locale`/`extra` | Add the input to `buildMarkerCacheKey`; see marker-widget:optimizing-marker-widget |
 | Marker uses wrong theme/direction/language | `context:` omitted at render | Call has no `context` argument | Pass `context:` from the app tree |
-| Widget layout differs from the same widget on screen | Render tree MediaQuery differs: `MediaQuery.size` is the marker's `logicalSize` | Widget reads `MediaQuery.of(context).size` | Size the widget from its own constraints, not MediaQuery |
+| Widget layout differs from the same widget on screen | Render tree MediaQuery differs: `MediaQuery.size` is the marker's `logicalSize`; screen padding/insets/display features are zeroed (2.1+) | Widget reads `MediaQuery.of(context).size` or uses `SafeArea` | Size the widget from its own constraints, not MediaQuery; `SafeArea` renders edge to edge by design |
+| Marker reserves unexplained blank space at an edge (pre-2.1) | Screen safe-area padding leaked into the render MediaQuery | Marker widget contains `SafeArea`/padding from `MediaQuery` | Upgrade to 2.1+ (geometry is zeroed) or drop `SafeArea` from marker widgets |
 | Asset image/font missing in marker (contextless call) | No `DefaultAssetBundle`/theme inheritance without `context` | Call has no `context` | Pass `context:` |
+| Map re-sends every marker icon on each rebuild (churn, platform jank) | Pre-2.1 descriptors were fresh objects per conversion, so rebuilt markers never compared equal; or the app builds new `MarkerIcon` instances per rebuild | Markers rebuilt from unchanged state still trigger platform updates | Upgrade to 2.1+ and reuse `MarkerIcon` instances (cache hits return the same instance); descriptors are then identical and unchanged markers stay `==` |
 
 ## Advanced markers and pins
 

@@ -18,9 +18,12 @@ first-time integration (marker-widget:using-marker-widget).
 
 1. `cacheKey` is opt-in. No key = no cache AND no in-flight deduplication; identical
    concurrent renders each pay full cost.
-2. A key must encode every input that changes pixels: identity, logicalSize,
-   pixelRatio, brightness, locale, plus `extra:` for state (selected, count, badge,
-   avatar revision). Missing input = stale icon when that input changes.
+2. A key must encode every content input that changes pixels: identity, brightness,
+   locale, plus `extra:` for state (selected, count, badge, avatar revision). Missing
+   input = stale icon when that input changes. Since 2.1 the renderer also keys every
+   cache entry by the resolved logicalSize and pixelRatio automatically, so a reused
+   key can never return a wrong-sized icon; keeping size/DPR inside
+   `buildMarkerCacheKey` stays correct and readable.
 3. Keys that over-encode (e.g. include a timestamp or camera position) defeat caching
    entirely. If `cacheSize` grows with every frame, the key is over-encoded.
 
@@ -37,7 +40,7 @@ smell, fix first).
 
 | Class | Strategy |
 |---|---|
-| Static (a handful of pin styles) | Render once at startup or first map open into `MarkerIcon` objects, reuse with `icon.toMarker(base:)`. Zero renders afterwards |
+| Static (a handful of pin styles) | Render once at startup or first map open into `MarkerIcon` objects, reuse with `icon.toMarker(base:)`. Zero renders afterwards; since 2.1 a reused icon also returns the identical descriptor, so rebuilt markers stay `==` and the map skips redundant platform icon updates |
 | Per-entity | `buildMarkerCacheKey(id: entity.id, ..., extra: visualState)`; keep using the shared `defaultMarkerIconRenderer` so eviction is centralized |
 | Cluster badges | `buildClusterCacheKey(count: n, ...)`; bucket counts (10, 50, 100+) via `extra` or by rounding `count` so 137 and 138 share one icon |
 | Per-frame | Restructure: precompute icon variants, select among them per frame instead of rendering per frame |
@@ -60,7 +63,14 @@ scales with logicalSize * dpr squared (a 256x256 icon at 3x DPR is ~9x the pixel
 evidence from `cacheSize`/`cacheSizeInBytes`. Never pass `maxCacheBytes: null` in an
 app that renders user-generated content. An icon bigger than `maxCacheBytes` by itself
 is silently never cached - if `isCached(key)` stays false after a render, check icon
-size vs the cap.
+size vs the cap. `maxCacheBytes` measures encoded PNG bytes, not the platform map's
+decoded bitmap memory.
+
+Since 2.1 the renderer also bounds render throughput: `maxConcurrentRenders`
+(default 3) queues extra renders in FIFO order so a 200-marker prewarm cannot hold
+200 detached render trees at once, and `maxRasterPixels` (default one 2048x2048
+physical bitmap) rejects accidental giant renders with `ArgumentError`. Raise or
+disable (null) either one only with measured evidence.
 
 ### Step 5: Verify with numbers
 

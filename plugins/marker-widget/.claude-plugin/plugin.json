@@ -1,7 +1,7 @@
 {
   "name": "marker-widget",
   "displayName": "marker_widget Assistant",
-  "version": "2.0.1",
+  "version": "2.1.0-dev.1",
   "description": "Package-specific skills and a read-only reviewer agent for the marker_widget Flutter package: correct integration and sizing, cache-key and performance tuning, symptom-based troubleshooting, and the v1-to-v2 migration.",
   "author": {
     "name": "Omar Khaled Hanafy",
