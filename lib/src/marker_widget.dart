@@ -143,6 +143,11 @@ class MarkerIcon {
   /// The size of the encoded PNG in bytes.
   int get sizeInBytes => bytes.lengthInBytes;
 
+  /// Cached descriptors per icon instance so repeated conversions hand the
+  /// map identical objects. Entries are garbage collected with the icon.
+  static final Expando<Map<MapBitmapOptions, BytesMapBitmap>> _mapBitmapCache =
+      Expando<Map<MapBitmapOptions, BytesMapBitmap>>('MarkerIcon.toMapBitmap');
+
   /// Converts this icon to a [BytesMapBitmap].
   ///
   /// When [options] does not specify [MapBitmapOptions.width],
@@ -153,6 +158,11 @@ class MarkerIcon {
   /// or pixel ratio metadata is attached and the raw encoded bytes are passed
   /// through.
   ///
+  /// Repeated calls with equal [options] on the same icon instance return the
+  /// identical [BytesMapBitmap] object. Google Maps compares descriptors by
+  /// identity, so this keeps rebuilt [Marker]s equal to their previous
+  /// versions and avoids redundant platform-side icon updates.
+  ///
   /// Throws [StateError] when the icon bytes are empty or the supplied bitmap
   /// options are invalid.
   BytesMapBitmap toMapBitmap({
@@ -160,6 +170,12 @@ class MarkerIcon {
   }) {
     _validateBitmapOptions(options);
 
+    final Map<MapBitmapOptions, BytesMapBitmap> cache =
+        _mapBitmapCache[this] ??= <MapBitmapOptions, BytesMapBitmap>{};
+    return cache.putIfAbsent(options, () => _createMapBitmap(options));
+  }
+
+  BytesMapBitmap _createMapBitmap(MapBitmapOptions options) {
     final double? resolvedImagePixelRatio = options.useRenderedPixelRatio
         ? pixelRatio
         : options.imagePixelRatio;

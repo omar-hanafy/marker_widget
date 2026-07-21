@@ -371,6 +371,41 @@ void main() {
       });
     });
 
+    test('toMapBitmap returns the identical descriptor for repeated calls', () {
+      final icon = buildIcon();
+
+      final first = icon.toMapBitmap();
+      final second = icon.toMapBitmap();
+
+      expect(identical(first, second), isTrue);
+    });
+
+    test('toMapBitmap memoizes per bitmap options value', () {
+      final icon = buildIcon();
+
+      final auto = icon.toMapBitmap();
+      final sized = icon.toMapBitmap(
+        options: const MapBitmapOptions(width: 40),
+      );
+      final sizedAgain = icon.toMapBitmap(
+        options: const MapBitmapOptions(width: 40),
+      );
+
+      expect(identical(auto, sized), isFalse);
+      expect(identical(sized, sizedAgain), isTrue);
+      expect(sized.width, 40);
+    });
+
+    test('markers built from the same icon stay equal across rebuilds', () {
+      final icon = buildIcon();
+      const base = Marker(markerId: MarkerId('stable'), position: LatLng(1, 2));
+
+      final marker1 = icon.toMarker(base: base);
+      final marker2 = icon.toMarker(base: base);
+
+      expect(marker1, marker2);
+    });
+
     test('toBitmapDescriptor delegates to map bitmap conversion', () {
       final descriptor = buildIcon().toBitmapDescriptor();
 
