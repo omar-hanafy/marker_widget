@@ -100,7 +100,7 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
                   ),
                   zIndexInt: 1,
                 ),
-                renderOptions: WidgetBitmapRenderOptions(
+                renderOptions: MarkerRenderOptions(
                   logicalSize: const Size(104, 104),
                   cacheKey: MarkerCacheKey(
                     'classic-marker',
@@ -154,7 +154,7 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
                 ),
                 backgroundColor: theme.colorScheme.surface,
                 borderColor: theme.colorScheme.primary,
-                renderOptions: WidgetBitmapRenderOptions(
+                renderOptions: MarkerRenderOptions(
                   logicalSize: const Size(28, 28),
                   cacheKey: MarkerCacheKey(
                     'advanced-pin',
@@ -182,7 +182,7 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
                 label: 'Widget Ground Overlay',
               ).toGroundOverlayBitmap(
                 context: context,
-                renderOptions: WidgetBitmapRenderOptions(
+                renderOptions: MarkerRenderOptions(
                   logicalSize: const Size(180, 120),
                   cacheKey: MarkerCacheKey(
                     'ground-overlay',

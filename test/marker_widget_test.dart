@@ -727,7 +727,7 @@ void main() {
                 },
               ),
               context: context,
-              options: const WidgetBitmapRenderOptions(
+              options: const MarkerRenderOptions(
                 logicalSize: Size(16, 16),
                 pixelRatio: 1.0,
               ),
@@ -769,7 +769,7 @@ void main() {
                 onDispose: () => active--,
               ),
               context: context,
-              options: const WidgetBitmapRenderOptions(
+              options: const MarkerRenderOptions(
                 logicalSize: Size(16, 16),
                 pixelRatio: 1.0,
               ),
@@ -792,7 +792,7 @@ void main() {
         renderer.render(
           const SizedBox(),
           context: context,
-          options: const WidgetBitmapRenderOptions(
+          options: const MarkerRenderOptions(
             logicalSize: Size(20, 20),
             pixelRatio: 2.0,
           ),
@@ -810,7 +810,7 @@ void main() {
         () => renderer.render(
           const SizedBox(),
           context: context,
-          options: const WidgetBitmapRenderOptions(
+          options: const MarkerRenderOptions(
             logicalSize: Size(20, 20),
             pixelRatio: 1.0,
           ),
@@ -830,7 +830,7 @@ void main() {
       final renderer = MarkerIconRenderer();
       final context = tester.element(find.byType(Scaffold));
 
-      Future<void> expectRejected(WidgetBitmapRenderOptions options) {
+      Future<void> expectRejected(MarkerRenderOptions options) {
         return expectLater(
           renderer.render(const SizedBox(), context: context, options: options),
           throwsA(
@@ -844,21 +844,19 @@ void main() {
       }
 
       await expectRejected(
-        const WidgetBitmapRenderOptions(logicalSize: Size(double.nan, 100)),
+        const MarkerRenderOptions(logicalSize: Size(double.nan, 100)),
       );
       await expectRejected(
-        const WidgetBitmapRenderOptions(
-          logicalSize: Size(double.infinity, 100),
-        ),
+        const MarkerRenderOptions(logicalSize: Size(double.infinity, 100)),
       );
       await expectRejected(
-        const WidgetBitmapRenderOptions(
+        const MarkerRenderOptions(
           logicalSize: Size(50, 50),
           pixelRatio: double.nan,
         ),
       );
       await expectRejected(
-        const WidgetBitmapRenderOptions(
+        const MarkerRenderOptions(
           logicalSize: Size(50, 50),
           pixelRatio: double.infinity,
         ),
@@ -877,7 +875,7 @@ void main() {
         renderer.render(
           const SizedBox(),
           context: context,
-          options: const WidgetBitmapRenderOptions(logicalSize: Size(0, 100)),
+          options: const MarkerRenderOptions(logicalSize: Size(0, 100)),
         ),
         throwsA(
           isA<ArgumentError>().having(
@@ -901,7 +899,7 @@ void main() {
         renderer.render(
           const SizedBox(),
           context: context,
-          options: const WidgetBitmapRenderOptions(pixelRatio: 0),
+          options: const MarkerRenderOptions(pixelRatio: 0),
         ),
         throwsA(
           isA<ArgumentError>().having(
@@ -925,7 +923,7 @@ void main() {
         () => renderer.render(
           Container(width: 30, height: 30, color: Colors.red),
           context: context,
-          options: const WidgetBitmapRenderOptions(
+          options: const MarkerRenderOptions(
             logicalSize: Size(30, 30),
             cacheKey: 'cache-key',
           ),
@@ -936,7 +934,7 @@ void main() {
         () => renderer.render(
           Container(width: 30, height: 30, color: Colors.blue),
           context: context,
-          options: const WidgetBitmapRenderOptions(
+          options: const MarkerRenderOptions(
             logicalSize: Size(30, 30),
             cacheKey: 'cache-key',
           ),
@@ -962,7 +960,7 @@ void main() {
         () => renderer.render(
           const ColoredBox(color: Colors.red),
           context: context,
-          options: WidgetBitmapRenderOptions(
+          options: MarkerRenderOptions(
             logicalSize: size,
             pixelRatio: 1.0,
             cacheKey: 'sized',
@@ -993,7 +991,7 @@ void main() {
         () => renderer.render(
           const ColoredBox(color: Colors.green),
           context: context,
-          options: WidgetBitmapRenderOptions(
+          options: MarkerRenderOptions(
             logicalSize: const Size(20, 20),
             pixelRatio: dpr,
             cacheKey: 'dpr',
@@ -1024,7 +1022,7 @@ void main() {
             renderer.render(
               const ColoredBox(color: Colors.blue),
               context: context,
-              options: const WidgetBitmapRenderOptions(
+              options: const MarkerRenderOptions(
                 logicalSize: Size(24, 24),
                 pixelRatio: 1.0,
                 cacheKey: 'race',
@@ -1033,7 +1031,7 @@ void main() {
             renderer.render(
               const ColoredBox(color: Colors.blue),
               context: context,
-              options: const WidgetBitmapRenderOptions(
+              options: const MarkerRenderOptions(
                 logicalSize: Size(48, 48),
                 pixelRatio: 1.0,
                 cacheKey: 'race',
@@ -1060,7 +1058,7 @@ void main() {
         () => renderer.render(
           const SizedBox(),
           context: context,
-          options: const WidgetBitmapRenderOptions(
+          options: const MarkerRenderOptions(
             logicalSize: Size(20, 20),
             cacheKey: 'no-cache',
           ),
@@ -1071,7 +1069,7 @@ void main() {
         () => renderer.render(
           const SizedBox(),
           context: context,
-          options: const WidgetBitmapRenderOptions(
+          options: const MarkerRenderOptions(
             logicalSize: Size(20, 20),
             cacheKey: 'no-cache',
           ),
@@ -1094,7 +1092,7 @@ void main() {
         () => renderer.render(
           const SizedBox(),
           context: context,
-          options: const WidgetBitmapRenderOptions(
+          options: const MarkerRenderOptions(
             logicalSize: Size(20, 20),
             cacheKey: 'remove-me',
           ),
@@ -1122,7 +1120,7 @@ void main() {
         () => renderer.render(
           const SizedBox(),
           context: context,
-          options: const WidgetBitmapRenderOptions(
+          options: const MarkerRenderOptions(
             logicalSize: Size(20, 20),
             cacheKey: 'clear-me',
           ),
@@ -1154,7 +1152,7 @@ void main() {
           final Future<MarkerIcon> slowFuture = renderer.render(
             Image(image: gatedProvider),
             context: context,
-            options: WidgetBitmapRenderOptions(
+            options: MarkerRenderOptions(
               logicalSize: const Size(24, 24),
               cacheKey: 'stale-clear',
               imageDependencies: [gatedProvider],
@@ -1166,7 +1164,7 @@ void main() {
           final Future<MarkerIcon> fastFuture = renderer.render(
             Container(width: 24, height: 24, color: Colors.blue),
             context: context,
-            options: const WidgetBitmapRenderOptions(
+            options: const MarkerRenderOptions(
               logicalSize: Size(24, 24),
               cacheKey: 'stale-clear',
             ),
@@ -1202,7 +1200,7 @@ void main() {
           final Future<MarkerIcon> slowFuture = renderer.render(
             Image(image: gatedProvider),
             context: context,
-            options: WidgetBitmapRenderOptions(
+            options: MarkerRenderOptions(
               logicalSize: const Size(24, 24),
               cacheKey: 'stale-remove',
               imageDependencies: [gatedProvider],
@@ -1214,7 +1212,7 @@ void main() {
           final Future<MarkerIcon> fastFuture = renderer.render(
             Container(width: 24, height: 24, color: Colors.blue),
             context: context,
-            options: const WidgetBitmapRenderOptions(
+            options: const MarkerRenderOptions(
               logicalSize: Size(24, 24),
               cacheKey: 'stale-remove',
             ),
@@ -1249,7 +1247,7 @@ void main() {
         () => renderer.render(
           const SizedBox(),
           context: context,
-          options: WidgetBitmapRenderOptions(
+          options: MarkerRenderOptions(
             logicalSize: const Size(20, 20),
             cacheKey: key,
           ),
@@ -1284,7 +1282,7 @@ void main() {
           renderer.render(
             const SizedBox(),
             context: context,
-            options: const WidgetBitmapRenderOptions(
+            options: const MarkerRenderOptions(
               logicalSize: Size(24, 24),
               cacheKey: 'pending-key',
             ),
@@ -1292,7 +1290,7 @@ void main() {
           renderer.render(
             const SizedBox(),
             context: context,
-            options: const WidgetBitmapRenderOptions(
+            options: const MarkerRenderOptions(
               logicalSize: Size(24, 24),
               cacheKey: 'pending-key',
             ),
@@ -1321,7 +1319,7 @@ void main() {
           () => renderer.render(
             const SizedBox(),
             context: context,
-            options: const WidgetBitmapRenderOptions(
+            options: const MarkerRenderOptions(
               logicalSize: Size(10, 10),
               cacheKey: 'oversized',
             ),
@@ -1348,7 +1346,7 @@ void main() {
         () => measureRenderer.render(
           const SizedBox(),
           context: context,
-          options: const WidgetBitmapRenderOptions(
+          options: const MarkerRenderOptions(
             logicalSize: Size(10, 10),
             cacheKey: 'measure',
           ),
@@ -1364,7 +1362,7 @@ void main() {
         () => renderer.render(
           const SizedBox(),
           context: context,
-          options: const WidgetBitmapRenderOptions(
+          options: const MarkerRenderOptions(
             logicalSize: Size(10, 10),
             cacheKey: 'first',
           ),
@@ -1378,7 +1376,7 @@ void main() {
         () => renderer.render(
           const SizedBox(),
           context: context,
-          options: const WidgetBitmapRenderOptions(
+          options: const MarkerRenderOptions(
             logicalSize: Size(10, 10),
             cacheKey: 'second',
           ),
@@ -1433,7 +1431,7 @@ void main() {
             },
           ),
           context: context,
-          options: const WidgetBitmapRenderOptions(
+          options: const MarkerRenderOptions(
             logicalSize: Size(40, 40),
             pixelRatio: 2.0,
           ),
@@ -1477,7 +1475,7 @@ void main() {
               ),
             ),
             context: context,
-            options: const WidgetBitmapRenderOptions(
+            options: const MarkerRenderOptions(
               logicalSize: Size(48, 48),
               pixelRatio: 1.0,
             ),
@@ -1515,7 +1513,7 @@ void main() {
               ),
             ),
             context: context,
-            options: const WidgetBitmapRenderOptions(
+            options: const MarkerRenderOptions(
               logicalSize: Size(60, 40),
               pixelRatio: 1.0,
             ),
@@ -1568,7 +1566,7 @@ void main() {
               ),
             ),
             context: context,
-            options: const WidgetBitmapRenderOptions(
+            options: const MarkerRenderOptions(
               logicalSize: Size(40, 40),
               pixelRatio: 1.0,
             ),
@@ -1621,7 +1619,7 @@ void main() {
               ),
             ),
             context: context,
-            options: const WidgetBitmapRenderOptions(
+            options: const MarkerRenderOptions(
               logicalSize: Size(40, 40),
               pixelRatio: 1.0,
             ),
@@ -1643,6 +1641,78 @@ void main() {
       expect(matchIcon, isNotNull);
       expect(mismatchIcon, isNotNull);
       expect(matchIcon!.bytes, isNot(equals(mismatchIcon!.bytes)));
+    });
+  });
+
+  group('Options equality', () {
+    test('MarkerRenderOptions implements value equality', () {
+      final provider = MemoryImage(_onePixelPng());
+      final options1 = MarkerRenderOptions(
+        logicalSize: const Size(40, 40),
+        pixelRatio: 2.0,
+        cacheKey: 'k',
+        imageDependencies: [provider],
+      );
+      final options2 = MarkerRenderOptions(
+        logicalSize: const Size(40, 40),
+        pixelRatio: 2.0,
+        cacheKey: 'k',
+        imageDependencies: [provider],
+      );
+
+      expect(options1, options2);
+      expect(options1.hashCode, options2.hashCode);
+    });
+
+    test('MarkerRenderOptions differs on any field', () {
+      const base = MarkerRenderOptions(logicalSize: Size(40, 40));
+
+      expect(base, const MarkerRenderOptions(logicalSize: Size(40, 40)));
+      expect(base, isNot(const MarkerRenderOptions(logicalSize: Size(41, 40))));
+      expect(
+        base,
+        isNot(
+          const MarkerRenderOptions(logicalSize: Size(40, 40), pixelRatio: 2.0),
+        ),
+      );
+      expect(
+        base,
+        isNot(
+          const MarkerRenderOptions(logicalSize: Size(40, 40), cacheKey: 'x'),
+        ),
+      );
+      expect(
+        base,
+        isNot(
+          MarkerRenderOptions(
+            logicalSize: const Size(40, 40),
+            imageDependencies: [MemoryImage(_onePixelPng())],
+          ),
+        ),
+      );
+    });
+
+    test('MapBitmapOptions implements value equality', () {
+      const a = MapBitmapOptions(width: 48, height: 32, imagePixelRatio: 2.0);
+      const b = MapBitmapOptions(width: 48, height: 32, imagePixelRatio: 2.0);
+
+      expect(a, b);
+      expect(a.hashCode, b.hashCode);
+      expect(a, isNot(const MapBitmapOptions(width: 48, height: 32)));
+      expect(
+        const MapBitmapOptions.pixelPerfect(),
+        isNot(const MapBitmapOptions()),
+      );
+    });
+  });
+
+  group('Shared renderer', () {
+    test('MarkerIconRenderer.shared is a stable instance', () {
+      expect(
+        identical(MarkerIconRenderer.shared, MarkerIconRenderer.shared),
+        isTrue,
+      );
+      expect(MarkerIconRenderer.shared.enableCaching, isTrue);
     });
   });
 
@@ -1673,7 +1743,10 @@ void main() {
         isNot(const MarkerCacheKey('other', brightness: Brightness.light)),
       );
       expect(base, isNot(const MarkerCacheKey('id')));
-      expect(base, isNot(const MarkerCacheKey('id', brightness: Brightness.dark)));
+      expect(
+        base,
+        isNot(const MarkerCacheKey('id', brightness: Brightness.dark)),
+      );
       expect(
         base,
         isNot(
@@ -1750,7 +1823,7 @@ void main() {
         final Future<MarkerIcon> render = renderer.render(
           Image(image: provider, fit: BoxFit.fill),
           context: context,
-          options: WidgetBitmapRenderOptions(
+          options: MarkerRenderOptions(
             logicalSize: const Size(16, 16),
             pixelRatio: 1.0,
             imageDependencies: [provider],
@@ -1799,7 +1872,7 @@ void main() {
             ),
           ),
           context: context,
-          options: WidgetBitmapRenderOptions(
+          options: MarkerRenderOptions(
             logicalSize: const Size(16, 16),
             pixelRatio: 1.0,
             imageDependencies: [provider],
@@ -1826,7 +1899,7 @@ void main() {
           renderer.render(
             const SizedBox(),
             context: context,
-            options: const WidgetBitmapRenderOptions(
+            options: const MarkerRenderOptions(
               logicalSize: Size(16, 16),
               pixelRatio: 1.0,
               imageDependencies: [_FailingImageProvider()],
@@ -1874,7 +1947,7 @@ void main() {
             onDispose: () => disposeCount++,
           ),
           context: context,
-          options: const WidgetBitmapRenderOptions(
+          options: const MarkerRenderOptions(
             logicalSize: Size(20, 20),
             pixelRatio: 1.0,
           ),
@@ -1912,7 +1985,7 @@ void main() {
               onDispose: () => timer?.cancel(),
             ),
             context: context,
-            options: const WidgetBitmapRenderOptions(
+            options: const MarkerRenderOptions(
               logicalSize: Size(20, 20),
               pixelRatio: 1.0,
             ),
@@ -1947,7 +2020,7 @@ void main() {
         () => renderer.render(
           Container(width: 50, height: 50, color: Colors.red),
           context: context,
-          options: const WidgetBitmapRenderOptions(
+          options: const MarkerRenderOptions(
             logicalSize: Size(50, 50),
             pixelRatio: 1.0,
           ),
@@ -1971,7 +2044,7 @@ void main() {
         () => Container(width: 40, height: 40, color: Colors.blue)
             .toBitmapDescriptor(
               context: context,
-              renderOptions: const WidgetBitmapRenderOptions(
+              renderOptions: const MarkerRenderOptions(
                 logicalSize: Size(40, 40),
               ),
             ),
@@ -1990,9 +2063,7 @@ void main() {
       final bitmap = await tester.runAsync(
         () => Container(width: 40, height: 40, color: Colors.green).toMapBitmap(
           context: context,
-          renderOptions: const WidgetBitmapRenderOptions(
-            logicalSize: Size(40, 40),
-          ),
+          renderOptions: const MarkerRenderOptions(logicalSize: Size(40, 40)),
           bitmapOptions: const MapBitmapOptions(imagePixelRatio: 2.5),
         ),
       );
@@ -2012,7 +2083,7 @@ void main() {
         () => Container(width: 40, height: 40, color: Colors.orange)
             .toGroundOverlayBitmap(
               context: context,
-              renderOptions: const WidgetBitmapRenderOptions(
+              renderOptions: const MarkerRenderOptions(
                 logicalSize: Size(40, 40),
               ),
             ),
@@ -2033,7 +2104,7 @@ void main() {
         () =>
             Container(width: 40, height: 40, color: Colors.yellow).toMarkerIcon(
               context: context,
-              renderOptions: const WidgetBitmapRenderOptions(
+              renderOptions: const MarkerRenderOptions(
                 logicalSize: Size(40, 40),
               ),
             ),
@@ -2055,7 +2126,7 @@ void main() {
         () => Container(width: 24, height: 24, color: Colors.purple)
             .toBitmapGlyph(
               context: context,
-              renderOptions: const WidgetBitmapRenderOptions(
+              renderOptions: const MarkerRenderOptions(
                 logicalSize: Size(24, 24),
               ),
             ),
@@ -2077,9 +2148,7 @@ void main() {
           context: context,
           backgroundColor: Colors.blue,
           borderColor: Colors.white,
-          renderOptions: const WidgetBitmapRenderOptions(
-            logicalSize: Size(24, 24),
-          ),
+          renderOptions: const MarkerRenderOptions(logicalSize: Size(24, 24)),
         ),
       );
 
@@ -2102,9 +2171,7 @@ void main() {
             position: LatLng(1, 2),
             zIndexInt: 3,
           ),
-          renderOptions: const WidgetBitmapRenderOptions(
-            logicalSize: Size(32, 32),
-          ),
+          renderOptions: const MarkerRenderOptions(logicalSize: Size(32, 32)),
         ),
       );
 
@@ -2131,7 +2198,7 @@ void main() {
                 collisionBehavior:
                     MarkerCollisionBehavior.optionalAndHidesLowerPriority,
               ),
-              renderOptions: const WidgetBitmapRenderOptions(
+              renderOptions: const MarkerRenderOptions(
                 logicalSize: Size(32, 32),
               ),
             ),
@@ -2162,7 +2229,7 @@ void main() {
               ),
               backgroundColor: Colors.white,
               borderColor: Colors.red,
-              renderOptions: const WidgetBitmapRenderOptions(
+              renderOptions: const MarkerRenderOptions(
                 logicalSize: Size(24, 24),
               ),
             ),
@@ -2181,7 +2248,7 @@ void main() {
       final descriptor = await tester.runAsync(
         () => Container(width: 30, height: 30, color: Colors.red)
             .toBitmapDescriptor(
-              renderOptions: const WidgetBitmapRenderOptions(
+              renderOptions: const MarkerRenderOptions(
                 logicalSize: Size(30, 30),
                 pixelRatio: 1.0,
               ),
@@ -2197,7 +2264,7 @@ void main() {
       final pinConfig = await tester.runAsync(
         () => Container(width: 24, height: 24, color: Colors.blue).toPinConfig(
           backgroundColor: Colors.black,
-          renderOptions: const WidgetBitmapRenderOptions(
+          renderOptions: const MarkerRenderOptions(
             logicalSize: Size(24, 24),
             pixelRatio: 1.0,
           ),
@@ -2214,7 +2281,7 @@ void main() {
       final bitmap = await tester.runAsync(
         () =>
             Container(width: 30, height: 30, color: Colors.orange).toMapBitmap(
-              renderOptions: const WidgetBitmapRenderOptions(
+              renderOptions: const MarkerRenderOptions(
                 logicalSize: Size(30, 30),
                 pixelRatio: 1.0,
               ),
@@ -2232,7 +2299,7 @@ void main() {
       final bitmap = await tester.runAsync(
         () => Container(width: 32, height: 20, color: Colors.cyan)
             .toGroundOverlayBitmap(
-              renderOptions: const WidgetBitmapRenderOptions(
+              renderOptions: const MarkerRenderOptions(
                 logicalSize: Size(32, 20),
                 pixelRatio: 1.0,
               ),
@@ -2249,7 +2316,7 @@ void main() {
       final glyph = await tester.runAsync(
         () =>
             Container(width: 20, height: 20, color: Colors.pink).toBitmapGlyph(
-              renderOptions: const WidgetBitmapRenderOptions(
+              renderOptions: const MarkerRenderOptions(
                 logicalSize: Size(20, 20),
                 pixelRatio: 1.0,
               ),
@@ -2267,7 +2334,7 @@ void main() {
       final icon = await tester.runAsync(
         () =>
             Container(width: 30, height: 30, color: Colors.green).toMarkerIcon(
-              renderOptions: const WidgetBitmapRenderOptions(
+              renderOptions: const MarkerRenderOptions(
                 logicalSize: Size(30, 30),
                 pixelRatio: 1.0,
               ),
@@ -2289,7 +2356,7 @@ void main() {
             position: LatLng(5, 6),
             zIndexInt: 4,
           ),
-          renderOptions: const WidgetBitmapRenderOptions(
+          renderOptions: const MarkerRenderOptions(
             logicalSize: Size(28, 28),
             pixelRatio: 1.0,
           ),
@@ -2312,7 +2379,7 @@ void main() {
                 markerId: const MarkerId('top-level-advanced'),
                 position: const LatLng(8, 9),
               ),
-              renderOptions: const WidgetBitmapRenderOptions(
+              renderOptions: const MarkerRenderOptions(
                 logicalSize: Size(28, 28),
                 pixelRatio: 1.0,
               ),
@@ -2335,7 +2402,7 @@ void main() {
               ),
               backgroundColor: Colors.black,
               borderColor: Colors.teal,
-              renderOptions: const WidgetBitmapRenderOptions(
+              renderOptions: const MarkerRenderOptions(
                 logicalSize: Size(24, 24),
                 pixelRatio: 1.0,
               ),

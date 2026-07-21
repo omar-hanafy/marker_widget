@@ -3,7 +3,6 @@ import 'dart:collection';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:equatable/equatable.dart';
 import 'package:flutter/foundation.dart' show defaultTargetPlatform, listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -20,7 +19,7 @@ bool _isPositiveFinite(double value) => value.isFinite && value > 0;
 /// [imagePixelRatio] must all remain null so the bitmap is passed through
 /// without extra scaling metadata.
 @immutable
-class MapBitmapOptions extends Equatable {
+class MapBitmapOptions {
   /// Creates bitmap conversion options.
   const MapBitmapOptions({
     this.bitmapScaling = MapBitmapScaling.auto,
@@ -62,13 +61,26 @@ class MapBitmapOptions extends Equatable {
   final bool useRenderedPixelRatio;
 
   @override
-  List<Object?> get props => [
+  bool operator ==(Object other) {
+    if (identical(this, other)) {
+      return true;
+    }
+    return other is MapBitmapOptions &&
+        bitmapScaling == other.bitmapScaling &&
+        width == other.width &&
+        height == other.height &&
+        imagePixelRatio == other.imagePixelRatio &&
+        useRenderedPixelRatio == other.useRenderedPixelRatio;
+  }
+
+  @override
+  int get hashCode => Object.hash(
     bitmapScaling,
     width,
     height,
     imagePixelRatio,
     useRenderedPixelRatio,
-  ];
+  );
 }
 
 /// Options that control how a widget is rendered off-screen.
@@ -77,9 +89,9 @@ class MapBitmapOptions extends Equatable {
 /// [logicalSize] is omitted, and to the active [ui.FlutterView]'s device pixel
 /// ratio when [pixelRatio] is omitted.
 @immutable
-class WidgetBitmapRenderOptions extends Equatable {
+class MarkerRenderOptions {
   /// Creates widget rendering options.
-  const WidgetBitmapRenderOptions({
+  const MarkerRenderOptions({
     this.logicalSize,
     this.pixelRatio,
     this.cacheKey,
@@ -111,16 +123,28 @@ class WidgetBitmapRenderOptions extends Equatable {
   final List<ImageProvider> imageDependencies;
 
   @override
-  List<Object?> get props => [
+  bool operator ==(Object other) {
+    if (identical(this, other)) {
+      return true;
+    }
+    return other is MarkerRenderOptions &&
+        logicalSize == other.logicalSize &&
+        pixelRatio == other.pixelRatio &&
+        cacheKey == other.cacheKey &&
+        listEquals(imageDependencies, other.imageDependencies);
+  }
+
+  @override
+  int get hashCode => Object.hash(
     logicalSize,
     pixelRatio,
     cacheKey,
-    imageDependencies,
-  ];
+    Object.hashAll(imageDependencies),
+  );
 }
 
 /// Thrown when an image declared in
-/// [WidgetBitmapRenderOptions.imageDependencies] fails to load or decode.
+/// [MarkerRenderOptions.imageDependencies] fails to load or decode.
 ///
 /// The render fails loudly instead of capturing a marker with a missing
 /// image. Catch this to fall back to a placeholder icon.
@@ -157,7 +181,7 @@ final class MarkerImageLoadException implements Exception {
 /// identity, which causes safe but wasteful cache misses.
 ///
 /// Any object with value semantics works as a
-/// `MarkerRenderOptions.cacheKey`; this class is the package-blessed
+/// [MarkerRenderOptions.cacheKey]; this class is the package-blessed
 /// convenience, not a requirement.
 @immutable
 final class MarkerCacheKey {
@@ -488,6 +512,15 @@ class MarkerIcon {
 /// This is where the RenderView and PipelineOwner work happens, so the public
 /// API stays stable if Flutter tweaks internals again.
 class MarkerIconRenderer {
+  /// The shared renderer used by the widget extensions when no explicit
+  /// renderer is passed.
+  ///
+  /// Exposed so callers can clear its cache on logout or theme changes,
+  /// inspect cache size, or pre-render shared assets. Construct a dedicated
+  /// [MarkerIconRenderer] instead when different defaults or an isolated
+  /// cache are needed.
+  static final MarkerIconRenderer shared = MarkerIconRenderer();
+
   /// Creates a renderer that turns widgets into marker icons.
   ///
   /// Throws [ArgumentError] when [defaultLogicalSize] is not positive and
@@ -598,7 +631,7 @@ class MarkerIconRenderer {
   /// If [context] is supplied, the render tree inherits that context's
   /// `MediaQuery`, theme, directionality, localizations, and asset bundle.
   ///
-  /// Cached entries are looked up by [WidgetBitmapRenderOptions.cacheKey]
+  /// Cached entries are looked up by [MarkerRenderOptions.cacheKey]
   /// combined with the resolved logical size and pixel ratio, so reusing one
   /// cache key at a different size or pixel ratio always renders a fresh
   /// icon. Content inputs that change the rendered output (theme brightness,
@@ -607,7 +640,7 @@ class MarkerIconRenderer {
   Future<MarkerIcon> render(
     Widget widget, {
     BuildContext? context,
-    WidgetBitmapRenderOptions options = const WidgetBitmapRenderOptions(),
+    MarkerRenderOptions options = const MarkerRenderOptions(),
   }) async {
     final ui.FlutterView view = _resolveView(context);
     final Size size = options.logicalSize ?? defaultLogicalSize;
@@ -802,8 +835,13 @@ class MarkerIconRenderer {
         );
       }
       return await _withRenderSlot(
-        () =>
-            _doRender(widget, context: context, view: view, size: size, dpr: dpr),
+        () => _doRender(
+          widget,
+          context: context,
+          view: view,
+          size: size,
+          dpr: dpr,
+        ),
       );
     } finally {
       for (final (ImageStream stream, ImageStreamListener listener)
@@ -1147,21 +1185,14 @@ class _PendingRender {
   bool stale = false;
 }
 
-/// The shared renderer used by the widget extensions when no explicit
-/// [MarkerIconRenderer] is provided.
-///
-/// Expose this so callers can clear its cache on logout or theme changes,
-/// inspect cache size, or pre-render shared assets.
-final MarkerIconRenderer defaultMarkerIconRenderer = MarkerIconRenderer();
-
 Future<MarkerIcon> _renderMarkerIcon(
   Widget widget, {
   BuildContext? context,
   MarkerIconRenderer? renderer,
-  WidgetBitmapRenderOptions renderOptions = const WidgetBitmapRenderOptions(),
+  MarkerRenderOptions renderOptions = const MarkerRenderOptions(),
 }) {
   final MarkerIconRenderer effectiveRenderer =
-      renderer ?? defaultMarkerIconRenderer;
+      renderer ?? MarkerIconRenderer.shared;
   return effectiveRenderer.render(
     widget,
     context: context,
@@ -1176,7 +1207,7 @@ extension WidgetMarkerExtension on Widget {
   Future<BitmapDescriptor> toBitmapDescriptor({
     BuildContext? context,
     MarkerIconRenderer? renderer,
-    WidgetBitmapRenderOptions renderOptions = const WidgetBitmapRenderOptions(),
+    MarkerRenderOptions renderOptions = const MarkerRenderOptions(),
     MapBitmapOptions bitmapOptions = const MapBitmapOptions(),
   }) async {
     final MarkerIcon icon = await toMarkerIcon(
@@ -1191,7 +1222,7 @@ extension WidgetMarkerExtension on Widget {
   Future<BytesMapBitmap> toMapBitmap({
     BuildContext? context,
     MarkerIconRenderer? renderer,
-    WidgetBitmapRenderOptions renderOptions = const WidgetBitmapRenderOptions(),
+    MarkerRenderOptions renderOptions = const MarkerRenderOptions(),
     MapBitmapOptions bitmapOptions = const MapBitmapOptions(),
   }) async {
     final MarkerIcon icon = await toMarkerIcon(
@@ -1207,7 +1238,7 @@ extension WidgetMarkerExtension on Widget {
   Future<BytesMapBitmap> toGroundOverlayBitmap({
     BuildContext? context,
     MarkerIconRenderer? renderer,
-    WidgetBitmapRenderOptions renderOptions = const WidgetBitmapRenderOptions(),
+    MarkerRenderOptions renderOptions = const MarkerRenderOptions(),
   }) async {
     final MarkerIcon icon = await toMarkerIcon(
       context: context,
@@ -1221,7 +1252,7 @@ extension WidgetMarkerExtension on Widget {
   Future<BitmapGlyph> toBitmapGlyph({
     BuildContext? context,
     MarkerIconRenderer? renderer,
-    WidgetBitmapRenderOptions renderOptions = const WidgetBitmapRenderOptions(),
+    MarkerRenderOptions renderOptions = const MarkerRenderOptions(),
     MapBitmapOptions bitmapOptions = const MapBitmapOptions(),
   }) async {
     final MarkerIcon icon = await toMarkerIcon(
@@ -1241,7 +1272,7 @@ extension WidgetMarkerExtension on Widget {
     Color? backgroundColor,
     Color? borderColor,
     MarkerIconRenderer? renderer,
-    WidgetBitmapRenderOptions renderOptions = const WidgetBitmapRenderOptions(),
+    MarkerRenderOptions renderOptions = const MarkerRenderOptions(),
     MapBitmapOptions bitmapOptions = const MapBitmapOptions(),
   }) async {
     final MarkerIcon icon = await toMarkerIcon(
@@ -1260,7 +1291,7 @@ extension WidgetMarkerExtension on Widget {
   Future<MarkerIcon> toMarkerIcon({
     BuildContext? context,
     MarkerIconRenderer? renderer,
-    WidgetBitmapRenderOptions renderOptions = const WidgetBitmapRenderOptions(),
+    MarkerRenderOptions renderOptions = const MarkerRenderOptions(),
   }) {
     return _renderMarkerIcon(
       this,
@@ -1275,7 +1306,7 @@ extension WidgetMarkerExtension on Widget {
     required Marker base,
     BuildContext? context,
     MarkerIconRenderer? renderer,
-    WidgetBitmapRenderOptions renderOptions = const WidgetBitmapRenderOptions(),
+    MarkerRenderOptions renderOptions = const MarkerRenderOptions(),
     MapBitmapOptions bitmapOptions = const MapBitmapOptions(),
   }) async {
     final MarkerIcon icon = await toMarkerIcon(
@@ -1291,7 +1322,7 @@ extension WidgetMarkerExtension on Widget {
     required AdvancedMarker base,
     BuildContext? context,
     MarkerIconRenderer? renderer,
-    WidgetBitmapRenderOptions renderOptions = const WidgetBitmapRenderOptions(),
+    MarkerRenderOptions renderOptions = const MarkerRenderOptions(),
     MapBitmapOptions bitmapOptions = const MapBitmapOptions(),
   }) async {
     final MarkerIcon icon = await toMarkerIcon(
@@ -1313,7 +1344,7 @@ extension WidgetMarkerExtension on Widget {
     Color? backgroundColor,
     Color? borderColor,
     MarkerIconRenderer? renderer,
-    WidgetBitmapRenderOptions renderOptions = const WidgetBitmapRenderOptions(),
+    MarkerRenderOptions renderOptions = const MarkerRenderOptions(),
     MapBitmapOptions bitmapOptions = const MapBitmapOptions(),
   }) async {
     final MarkerIcon icon = await toMarkerIcon(
@@ -1329,4 +1360,3 @@ extension WidgetMarkerExtension on Widget {
     );
   }
 }
-

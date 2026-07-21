@@ -7,7 +7,7 @@
 /// Key features:
 /// * [toBitmapDescriptor] extension on [Widget] for easy conversion.
 /// * [MarkerIconRenderer] for advanced control and caching.
-/// * [MapBitmapOptions] and [WidgetBitmapRenderOptions] for explicit sizing.
+/// * [MapBitmapOptions] and [MarkerRenderOptions] for explicit sizing.
 /// * Helpers for [PinConfig], [BitmapGlyph], and advanced markers.
 ///
 /// The Google Maps types used by this package's API ([Marker],
