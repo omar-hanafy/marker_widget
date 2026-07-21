@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -62,6 +64,33 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
   String? get _advancedMapId =>
       _advancedMapIdValue.isEmpty ? null : _advancedMapIdValue;
 
+  MemoryImage? _avatarImage;
+
+  /// Draws a tiny avatar once and wraps it in a [MemoryImage], standing in
+  /// for the avatars a real app would load with [NetworkImage].
+  Future<MemoryImage> _ensureAvatarImage(Color color) async {
+    final MemoryImage? existing = _avatarImage;
+    if (existing != null) {
+      return existing;
+    }
+
+    final ui.PictureRecorder recorder = ui.PictureRecorder();
+    final Canvas canvas = Canvas(recorder);
+    canvas
+      ..drawCircle(const Offset(16, 16), 16, Paint()..color = color)
+      ..drawCircle(const Offset(16, 12), 6, Paint()..color = Colors.white)
+      ..drawCircle(const Offset(16, 30), 11, Paint()..color = Colors.white);
+    final ui.Image image = await recorder.endRecording().toImage(32, 32);
+    final ByteData byteData = (await image.toByteData(
+      format: ui.ImageByteFormat.png,
+    ))!;
+    image.dispose();
+
+    final MemoryImage provider = MemoryImage(Uint8List.sublistView(byteData));
+    _avatarImage = provider;
+    return provider;
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -84,11 +113,19 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
     try {
       switch (_mode) {
         case _DemoMode.classicMarker:
+          final MemoryImage avatar = await _ensureAvatarImage(
+            theme.colorScheme.tertiary,
+          );
+          if (!mounted) {
+            return;
+          }
+
           final Marker marker =
               await _ClassicMarkerCard(
                 title: 'Classic marker',
                 subtitle: 'Widget.toMarker()',
                 color: theme.colorScheme.primary,
+                avatar: avatar,
               ).toMarker(
                 context: context,
                 base: const Marker(
@@ -107,6 +144,9 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
                     brightness: theme.brightness,
                     locale: Localizations.maybeLocaleOf(context),
                   ),
+                  // The avatar is declared, so the renderer decodes it
+                  // before capture and it can never come out blank.
+                  imageDependencies: [avatar],
                 ),
               );
 
@@ -253,7 +293,7 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
         _mode == _DemoMode.advancedPin && _advancedMapId != null;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('marker_widget v2 example')),
+      appBar: AppBar(title: const Text('marker_widget example')),
       body: Column(
         children: <Widget>[
           Padding(
@@ -341,11 +381,13 @@ class _ClassicMarkerCard extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.color,
+    required this.avatar,
   });
 
   final String title;
   final String subtitle;
   final Color color;
+  final ImageProvider avatar;
 
   @override
   Widget build(BuildContext context) {
@@ -363,7 +405,15 @@ class _ClassicMarkerCard extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[
-            const Icon(Icons.place, color: Colors.white, size: 26),
+            Container(
+              width: 26,
+              height: 26,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 2),
+                image: DecorationImage(image: avatar, fit: BoxFit.cover),
+              ),
+            ),
             const SizedBox(height: 8),
             Text(
               title,
