@@ -21,7 +21,8 @@ Locate every usage site:
   `toAdvancedMarker`, `toAdvancedPinMarker`, `toPinConfig`, `toBitmapGlyph`,
   `toGroundOverlayBitmap`
 - Renderer usage: `MarkerIconRenderer(`, `MarkerIconRenderer.shared`, `.render(`
-- Keys and dependencies: `MarkerCacheKey`, `imageDependencies`
+- Keys and dependencies: `MarkerCacheKey`, `MarkerImageDependency`,
+  `imageDependencies`, `prepare`
 
 Check each site against the full checklist in
 `${CLAUDE_PLUGIN_ROOT}/references/review-checklist.md` (read it before starting; it
@@ -32,11 +33,13 @@ modes, in priority order:
    `cacheKey` (no caching, no dedup, full re-render every call).
 2. HIGH: cache keys missing inputs that change pixels (brightness, locale,
    selection/status via `extra`) causing stale icons, or `extra` values without
-   value equality causing permanent cache misses.
+   immutable value equality causing permanent misses or stale hits after mutation.
 3. HIGH: async images (`Image.network`, `CachedNetworkImage`, `DecorationImage`)
-   inside rendered widgets whose providers are not declared in
-   `imageDependencies` (blank markers), or declared-image failure paths without a
-   `MarkerImageLoadException` fallback where one is warranted.
+   inside rendered widgets whose providers are not declared through
+   `MarkerImageDependency` (blank markers), size-sensitive providers with a missing
+   or wrong `configurationSize`, required font/data futures absent from `prepare`,
+   or declared-image failure paths without a `MarkerImageLoadException` fallback
+   where one is warranted.
 4. HIGH: renders in isolates/`compute` or before binding init (`No FlutterView`).
 5. HIGH: advanced markers missing `markerType: advancedMarker`, `mapId`, or web
    `&libraries=marker` (silently invisible markers).

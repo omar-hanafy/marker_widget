@@ -40,7 +40,7 @@ void main() {
     );
 
     final BytesMapBitmap bitmap = icon.toGroundOverlayBitmap();
-    expect(bitmap, isA<MapBitmap>());
+    expect(bitmap, isA<BytesMapBitmap>());
 
     final overlay = GroundOverlay.fromBounds(
       groundOverlayId: const GroundOverlayId('overlay'),

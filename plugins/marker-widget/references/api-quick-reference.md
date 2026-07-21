@@ -21,8 +21,9 @@ package root; the whole implementation is that one file.
 Common named parameters on every extension method:
 
 - `context` (optional `BuildContext`): inherit MediaQuery, theme, directionality,
-  localizations, and `DefaultAssetBundle` from the app. Omit only for theme-independent
-  icons.
+  and `DefaultAssetBundle` from the app. Its locale is used for image-provider
+  resolution, but localization resources are not copied. Omit only for
+  environment-independent icons.
 - `renderer` (optional `MarkerIconRenderer`): defaults to `MarkerIconRenderer.shared`.
 - `renderOptions` (`MarkerRenderOptions`): how the widget is rasterized.
 - `bitmapOptions` (`MapBitmapOptions`): how the bytes are interpreted on the map
@@ -39,12 +40,11 @@ Common named parameters on every extension method:
 | `logicalSize` | renderer's `defaultLogicalSize` (96x96) | Layout size of the off-screen widget in logical px |
 | `pixelRatio` | current view DPR | Rasterization density |
 | `cacheKey` | `null` | Cache identity together with the resolved size and DPR. `null` means NO caching and NO dedup |
-| `imageDependencies` | `const []` | Image providers decoded before capture (see Image dependencies below) |
+| `prepare` | `null` | Async font/data/resource work awaited on a cache miss before image resolution and rendering |
+| `imageDependencies` | `const []` | `MarkerImageDependency` values decoded before capture (see Image dependencies below) |
 
 `MarkerRenderOptions` and `MapBitmapOptions` are value objects with structural
-`==`/`hashCode`. The v2 delay knobs (`waitForImages`, `initialImageDelay`,
-`imageRepaintDelay`) do not exist in 3.x; image readiness is deterministic via
-`imageDependencies`.
+`==`/`hashCode`. Function equality for `prepare` is identity-based.
 
 ## Image dependencies (3.0)
 
@@ -56,26 +56,37 @@ final avatar = NetworkImage(url);
 MarkerRenderOptions(
   logicalSize: const Size(56, 56),
   cacheKey: MarkerCacheKey(id, extra: status),
-  imageDependencies: [avatar],
+  imageDependencies: [
+    MarkerImageDependency(
+      avatar,
+      configurationSize: const Size(56, 56),
+    ),
+  ],
 )
 ```
 
 Contract:
 
-1. Each provider is resolved against the render environment (pixel ratio, locale,
-   text direction, asset bundle, platform) and awaited to FULL decode before the
-   widget tree is built. One deterministic paint pass; no delays, no races.
+1. Each dependency's provider is resolved against the captured render environment
+   (pixel ratio, locale, text direction, asset bundle, platform) and awaited to FULL
+   decode before the widget tree is built. One deterministic paint pass; no delays,
+   no races.
 2. Decoded images are retained until capture completes, so the image cache cannot
    evict them mid-render.
 3. The widget must display the SAME provider instances (or providers with equal
    cache keys), or its own lookup misses the warmed image and captures blank.
-4. A failing provider throws `MarkerImageLoadException` (fields: `provider`,
+4. `configurationSize` must match the size supplied by the rendered `Image` or
+   `DecorationImage` when a provider's cache key depends on size. Omit it when the
+   widget resolves that provider without a size.
+5. A failing provider throws `MarkerImageLoadException` (fields: `provider`,
    `cause`, `stackTrace`) instead of capturing a blank area. Catch it to fall
    back to a placeholder icon.
-5. Dependency decoding happens BEFORE a concurrency slot is taken, so slow
-   networks do not starve `maxConcurrentRenders`.
-6. Runtime-loaded fonts need no declaration: `await` the font load (google_fonts,
-   `FontLoader`) before rendering; loaded fonts are global.
+6. Image-backed jobs use the separate `maxConcurrentImageLoads` FIFO permit from
+   dependency resolution through capture. This bounds decoded images without
+   occupying a render-tree permit while a provider is still loading.
+7. Use `prepare` for runtime-loaded fonts, data, or other required async resources.
+   It runs only on a cache miss and completes before image resolution begins. Put a
+   prepared content revision in `cacheKey` whenever that content changes pixels.
 
 ## MapBitmapOptions (map display layer)
 
@@ -93,8 +104,8 @@ Behavior rules (enforced by `StateError`s):
 2. `MapBitmapScaling.none` + any size/ratio metadata: throws.
 3. `width`/`height`/`imagePixelRatio` must be > 0 and finite when provided (NaN and
    infinity are rejected).
-4. `pixelPerfect()` cannot be combined with explicit `width`/`height`/`imagePixelRatio`
-   (constructor assert).
+4. `pixelPerfect()` cannot be combined with explicit `width`/`height`/
+   `imagePixelRatio`; conversion throws `StateError` in every build mode.
 
 ## MarkerCacheKey (3.0)
 
@@ -108,15 +119,12 @@ logical size and pixel ratio to every cache entry itself, so the key carries onl
 CONTENT inputs: identity, brightness, locale, and `extra` for anything else that
 changes pixels (selection, status, badge count, avatar revision).
 
-- `extra` is compared with `==`: use values with structural equality - records
-  such as `(selected: true, badge: 3)` work well. Plain lists/maps compare by
-  identity and cause safe but wasteful cache misses.
+- `extra` is compared with `==`: use immutable values with structural equality -
+  records such as `(selected: true, badge: 3)` work well. Fresh identity-based
+  collections miss the cache; mutating and reusing one can return stale output.
 - `MarkerCacheKey.cluster(count: 5)` never collides with `MarkerCacheKey(5)`.
 - Any custom object with value semantics also works as `cacheKey`;
   `MarkerCacheKey` is the blessed convenience, not a requirement.
-- The v2 string builders `buildMarkerCacheKey`/`buildClusterCacheKey` do not
-  exist in 3.x (their `extra?.toString()` collapsed distinct states into
-  identical strings).
 
 ## MarkerIcon (cacheable value object)
 
@@ -148,13 +156,14 @@ MarkerIconRenderer({
   bool enableCaching = true,
   int maxCacheEntries = 64,
   int? maxCacheBytes = 50 * 1024 * 1024, // null disables byte-based eviction
-  int? maxConcurrentRenders = 3,         // null disables the FIFO gate
+  int? maxConcurrentRenders = 1,         // null disables the FIFO gate
+  int? maxConcurrentImageLoads = 1,      // null disables the image-job gate
   int? maxRasterPixels = 4 * 1024 * 1024, // null disables the budget
 })
 ```
 
 `MarkerIconRenderer.shared` is the shared instance used by all extension methods
-when `renderer` is omitted (replaces v2's top-level `defaultMarkerIconRenderer`).
+when `renderer` is omitted.
 
 Configuration is validated at runtime: non-positive or non-finite values throw
 `ArgumentError` in release builds too.
@@ -167,10 +176,12 @@ each such combination as one entry. `isCached(key)` matches any variant of the k
 `removeFromCache()`, in-flight renders started earlier still resolve for their
 callers but will NOT repopulate the cache.
 
-Render limits: `maxConcurrentRenders` gates how many detached render trees run
-at once; excess renders wait in FIFO order. `maxRasterPixels` rejects a render whose
-`width * height * pixelRatio^2` exceeds the budget (default equals one 2048x2048
-physical bitmap) with `ArgumentError` before any allocation.
+Render limits: `maxConcurrentRenders` gates detached render trees;
+`maxConcurrentImageLoads` separately gates image-backed jobs from dependency
+resolution through capture, so decoded native images stay bounded while image-free
+jobs bypass stalled providers. Both are FIFO. `maxRasterPixels` rejects a render
+whose exact rounded physical output area exceeds the budget (default equals one
+2048x2048 physical bitmap) with `ArgumentError` before any allocation.
 
 Lifecycle: the off-screen tree is fully unmounted after capture, so
 `State.dispose` runs for stateful marker widgets; timers/controllers they hold are
@@ -185,7 +196,7 @@ An icon larger than `maxCacheBytes` on its own is never cached
 uses, so the whole marker flow works from one import: `AdvancedMarker`,
 `AdvancedMarkerGlyph`, `BitmapDescriptor`, `BitmapGlyph`, `BytesMapBitmap`,
 `CircleGlyph`, `GroundOverlay`, `GroundOverlayId`, `InfoWindow`, `LatLng`,
-`LatLngBounds`, `MapBitmap`, `MapBitmapScaling`, `Marker`, `MarkerCollisionBehavior`,
+`LatLngBounds`, `MapBitmapScaling`, `Marker`, `MarkerCollisionBehavior`,
 `MarkerId`, `PinConfig`, `TextGlyph`. These are the same declarations
 `google_maps_flutter` exports, so both imports coexist without conflicts. Do not add
 an import of `google_maps_flutter_platform_interface` to consumer code; import from
@@ -195,13 +206,16 @@ an import of `google_maps_flutter_platform_interface` to consumer code; import f
 
 | Error contains | Thrown when |
 |---|---|
-| `MarkerIcon.bytes must not be empty.` | Converting an icon constructed with empty bytes |
+| `MarkerIcon.bytes must not be empty.` | Constructing an icon with empty bytes |
 | `MapBitmapScaling.none cannot be combined with width, height, or imagePixelRatio.` | Rule 2 above (also triggered by `pixelPerfect` + `none`) |
 | `MapBitmapOptions.width must be > 0 and finite` / `.height ...` / `.imagePixelRatio ...` | Non-positive, NaN, or infinite values |
-| `MarkerIcon.logicalSize must be > 0 and finite in both dimensions.` | Default-size conversion with degenerate logical size |
-| `MarkerIcon.pixelRatio must be > 0 and finite to use MapBitmapOptions.useRenderedPixelRatio.` | `pixelPerfect()` on an icon with a degenerate pixel ratio |
+| `width and height must both be > 0 and finite.` with argument `logicalSize` | Constructing an icon with a degenerate logical size |
+| `must be > 0 and finite.` with argument `pixelRatio` | Constructing an icon with a degenerate pixel ratio |
+| `MapBitmapOptions.useRenderedPixelRatio cannot be combined with width, height, or imagePixelRatio.` | `pixelPerfect()` combined with explicit size metadata |
 | `logicalSize.width and logicalSize.height must both be > 0 and finite.` (`ArgumentError`) | Render called with a non-positive/NaN/infinite logical size |
-| `pixelRatio must be > 0 and finite when provided.` (`ArgumentError`) | Render called with non-positive/NaN/infinite pixel ratio |
+| `the resolved pixelRatio must be > 0 and finite.` (`ArgumentError`) | Render called with a non-positive/NaN/infinite explicit or view pixel ratio |
+| `the resolved physical dimensions and pixel count must be finite.` (`ArgumentError`) | Logical size times DPR overflows or is otherwise invalid |
+| `configurationSize dimensions must be finite and non-negative` (`ArgumentError`) | A `MarkerImageDependency` has an invalid size |
 | `above maxRasterPixels` (`ArgumentError`) | Render whose physical pixel count exceeds the raster budget; shrink the marker or adjust `maxRasterPixels` |
 | `AdvancedMarker cannot go through toMarker` (`ArgumentError`) | An `AdvancedMarker` passed as `base` to classic `toMarker`; use `toAdvancedMarker` |
 | `must be > 0.` / `must be > 0 when provided.` (`ArgumentError`) | Invalid `MarkerIconRenderer` constructor configuration |

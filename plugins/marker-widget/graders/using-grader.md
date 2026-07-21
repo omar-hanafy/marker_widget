@@ -7,11 +7,9 @@ with marker_widget.
 
 Award points (sum, cap at 1.0):
 
-- 0.3: the answer uses the current 3.x API shapes: an extension call such as
+- 0.3: the answer uses the documented 3.x API shapes: an extension call such as
   `toMarker(base: Marker(...))` or `toBitmapDescriptor(...)` with named `context:`
-  and `renderOptions:`/`MarkerRenderOptions` (NOT v1 shapes like
-  `toMarkerBitmap(context, ...)` or `widgetToMarkerBitmap`, and NOT v2-removed
-  shapes like `WidgetBitmapRenderOptions` presented as current).
+  and `renderOptions:`/`MarkerRenderOptions`.
 - 0.25: it sets a `cacheKey` (ideally via `MarkerCacheKey`) and, given the app
   has dark mode, includes brightness among the key inputs. Bonus signal, not
   required: noting that resolved size and pixel ratio are keyed automatically.
@@ -24,10 +22,7 @@ Award points (sum, cap at 1.0):
   loads), markers stored in state.
 
 Score 0.0 regardless of the above if the answer invents APIs that do not exist in
-marker_widget 3.x (e.g. `MarkerGenerator`, `widgetToBitmap`, `toMarkerBitmap` as
-current API), presents APIs removed in 3.0 (`waitForImages`,
-`buildMarkerCacheKey`, `defaultMarkerIconRenderer`) as current, or tells the user
-to screenshot widgets via RepaintBoundary keys placed in the visible tree instead
-of using the package.
+marker_widget 3.x or tells the user to screenshot widgets via RepaintBoundary keys
+placed in the visible tree instead of using the package.
 
 Respond with only a JSON object: {"score": 0.0..1.0, "reasoning": "..."}

@@ -46,7 +46,7 @@ change, update the affected skill/reference files in the same PR.
 ## Conventions
 
 - CHANGELOG follows Keep a Changelog; document the net public delta only.
-- New breaking version => add a dedicated `migrating-marker-widget-vX-to-vY` skill
-  with a fixture pair under `plugins/marker-widget/evals/fixtures/`.
+- Keep v3 clean: ship only current APIs, current instructions, and current-source
+  fixtures. Do not preserve prior-version names or code paths.
 - Do not commit `pubspec.lock`, `.DS_Store`, `build/`, or IDE folders (gitignored).
 - Docs: every public member has a Dartdoc (`public_member_api_docs` is an error).

@@ -1,4 +1,4 @@
-# analysis_options.yaml — publishable packages focus
+# analysis_options.yaml - publishable packages focus
 # Conservative defaults + strict import/pubspec hygiene for pub.dev
 
 include: package:flutter_lints/flutter.yaml
@@ -31,7 +31,7 @@ linter:
 analyzer:
   # Keep analyzer from touching codegen / tool output
   exclude:
-    - "plugins/**" # agent-plugin tree: docs + migration fixtures (v1 API on purpose)
+    - "plugins/**" # agent-plugin tree: documentation and metadata
     - "**/*.g.dart"
     - "**/*.freezed.dart"
     - "**/*.gr.dart"
@@ -56,7 +56,7 @@ analyzer:
     library_private_types_in_public_api: warning
     directives_ordering: warning
     use_key_in_widget_constructors: warning        # useful in Flutter libs
-    deprecated_member_use_from_same_package: warning
+    deprecated_member_use_from_same_package: error
     unawaited_futures: warning
     comment_references: info
     public_member_api_docs: error                   # pana/doc coverage is separate

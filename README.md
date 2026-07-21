@@ -7,9 +7,9 @@ Render Flutter widgets into Google Maps bitmaps, glyphs, markers, and ground ove
 ## AI coding-assistant support (agent plugin)
 
 Package-specific support for **Claude Code** and **OpenAI Codex** ships from this
-repository as an installable agent plugin: five skills (correct integration and
-sizing, cache/performance tuning, symptom-based troubleshooting, and guided
-v1-to-v2 and v2-to-v3 migrations) plus a read-only reviewer agent for Claude Code.
+repository as an installable agent plugin: three skills for correct integration,
+cache/performance tuning, and symptom-based troubleshooting, plus a read-only
+reviewer agent for Claude Code.
 This is tooling for coding agents, not a runtime feature of the Dart package, and it
 is not part of the pub.dev archive.
 
@@ -32,14 +32,13 @@ Start a new agent session after installing (Codex requires it; it is good hygien
 Claude Code too). Then try:
 
 - "My marker_widget avatars from Image.network render as blank circles - fix it."
-- "Migrate this app from marker_widget 2.0.1 to 3.0.0."
 - Explicit invocation: `/marker-widget:troubleshooting-marker-widget` in Claude Code,
   or `$troubleshooting-marker-widget` in Codex.
 
 The plugin contains instructions and reference documents only: no hooks, no MCP
 servers, no executable scripts, no network access; the reviewer agent is restricted
-to read-only tools. Compatibility: marker_widget 3.x (migration skills cover 1.x to
-2.x and 2.x to 3.x); verified with Claude Code 2.1.x and codex-cli 0.144.x. Update
+to read-only tools. The skills cover marker_widget 3.x and are verified with Claude
+Code 2.1.x and codex-cli 0.144.x. Update
 with `claude plugin update marker-widget` / `codex plugin marketplace upgrade
 marker-widget`; uninstall with `claude plugin uninstall marker-widget` /
 `codex plugin remove marker-widget@marker-widget`.
@@ -53,7 +52,7 @@ recipe, maintainer guide): [`plugins/marker-widget/README.md`](plugins/marker-wi
 - Build classic `Marker` and `AdvancedMarker` objects directly
 - Create `BitmapGlyph` and `PinConfig` from widgets for advanced marker pins
 - Create raw `BytesMapBitmap` instances for `GroundOverlay`
-- Deterministic image readiness: declare `imageDependencies` and the renderer decodes them before capture - no delays, no blank markers
+- Deterministic readiness for declared images, runtime fonts, and asynchronous data
 - Separate render options from map bitmap options for cleaner sizing control
 - Collision-safe structured cache keys with `MarkerCacheKey`
 - LRU cache keyed by cache key, size, and pixel ratio, with entry limits, byte limits, and in-flight deduplication
@@ -124,7 +123,7 @@ final advancedMarker = await MyAvatarBadge().toAdvancedPinMarker(
   ),
   backgroundColor: Colors.white,
   borderColor: Colors.indigo,
-  renderOptions: const MarkerRenderOptions(
+  renderOptions: MarkerRenderOptions(
     logicalSize: Size(28, 28),
   ),
   bitmapOptions: const MapBitmapOptions(width: 28, height: 28),
@@ -142,7 +141,7 @@ Advanced markers also need:
 ```dart
 final overlayBitmap = await MyOverlayCard().toGroundOverlayBitmap(
   context: context,
-  renderOptions: const MarkerRenderOptions(
+  renderOptions: MarkerRenderOptions(
     logicalSize: Size(180, 120),
   ),
 );
@@ -176,7 +175,9 @@ final renderOptions = MarkerRenderOptions(
   logicalSize: const Size(96, 96),
   pixelRatio: 3.0,
   cacheKey: const MarkerCacheKey('user-42', brightness: Brightness.light),
-  imageDependencies: [NetworkImage(user.avatarUrl)],
+  imageDependencies: [
+    MarkerImageDependency(NetworkImage(user.avatarUrl)),
+  ],
 );
 ```
 
@@ -212,27 +213,48 @@ final marker = await DriverBadge(avatar: avatar).toMarker(
   renderOptions: MarkerRenderOptions(
     logicalSize: const Size(56, 56),
     cacheKey: MarkerCacheKey(user.id, extra: user.status),
-    imageDependencies: [avatar],
+    imageDependencies: [MarkerImageDependency(avatar)],
   ),
 );
 ```
 
 The contract:
 
-- Each declared provider is resolved against the render environment (pixel
-  ratio, locale, text direction, asset bundle) and awaited to full decode
-  before the widget tree is built.
+- Each `MarkerImageDependency` is resolved against the captured render
+  environment (pixel ratio, locale, text direction, asset bundle, and its
+  declared `configurationSize`) and awaited to full decode before the widget
+  tree is built.
 - The decoded images are kept alive until the capture completes, so they
   cannot be evicted mid-render.
 - Use the same provider instances (or providers with equal cache keys) as the
   widget itself displays.
+- For a provider whose key depends on `ImageConfiguration.size`, set
+  `configurationSize` to the exact size Flutter uses at the image site. For an
+  `Image` with explicit width and height, use those dimensions; for a
+  `DecorationImage`, use its painted box size.
 - A provider that fails to load throws `MarkerImageLoadException` instead of
   capturing a marker with a hole in it. Catch it to fall back to a placeholder
   icon.
+- Provider decode readiness does not settle wrapper-owned placeholders,
+  animations, or later-frame state. Those wrappers paint whatever their single
+  build-and-paint pass produces.
 
-Fonts loaded at runtime (for example `google_fonts` or `FontLoader`) are global
-once loaded: `await` the font load before rendering and the text paints
-correctly; no declaration is needed.
+Use `MarkerRenderOptions.prepare` for runtime fonts or asynchronous data that
+must be ready before capture:
+
+```dart
+MarkerRenderOptions(
+  cacheKey: MarkerCacheKey(user.id, extra: user.contentRevision),
+  prepare: () async {
+    await runtimeFontLoader.load();
+    await user.ensureBadgeData();
+  },
+)
+```
+
+Preparation runs only on a real cache miss, before image decoding and render
+slot acquisition. Errors propagate to the caller. Include any prepared content
+revision in the cache key.
 
 ## Render once, reuse everywhere
 
@@ -243,7 +265,7 @@ class MarkerAssets {
   static Future<void> preload(BuildContext context) async {
     restaurant = await RestaurantPin().toMarkerIcon(
       context: context,
-      renderOptions: const MarkerRenderOptions(
+      renderOptions: MarkerRenderOptions(
         logicalSize: Size(64, 64),
       ),
     );
@@ -289,7 +311,9 @@ Future<AdvancedMarker> toAdvancedPinMarker({
 ```
 
 You can omit `context` when you do not need to inherit theme, directionality,
-localizations, or the current asset bundle.
+`MediaQuery`, or the current asset bundle. The context locale is also used for
+image-provider resolution. Pass already resolved localized strings into the marker
+widget; localization delegates are not reloaded inside the detached render tree.
 
 `MarkerIcon` exposes the same bitmap, glyph, and builder methods synchronously after rendering. Its bytes are defensively copied and unmodifiable, so an icon can never change after construction.
 
@@ -308,19 +332,20 @@ as marker content:
   needs before rendering
 
 Passing `context` captures inherited themes, `MediaQuery` accessibility
-values (text scaling, brightness, bold text), `Directionality`,
-`Localizations`, and the asset bundle. It does not capture arbitrary
-`InheritedWidget`s such as provider scopes. Screen geometry (notch padding,
-keyboard insets, display features) is deliberately zeroed out, so a
+values (text scaling, brightness, bold text), `Directionality`, and the asset
+bundle. Its locale is used for image-provider configuration, but localization
+resources and arbitrary `InheritedWidget`s such as provider scopes are not
+copied. Pass resolved localized values into the widget. Screen geometry (notch
+padding, keyboard insets, display features) is deliberately zeroed out, so a
 `SafeArea` inside a marker renders edge to edge.
 
 Interactivity flattens: buttons and gestures inside the widget do nothing on
 the map. Marker taps and drags come from the `Marker` / `AdvancedMarker` you
 build, and when the widget's state changes you rerender and swap the icon.
 
-Images are covered by `imageDependencies` (see above); anything else
-asynchronous inside the widget is captured in whatever state it reached in
-the single frame.
+Images are covered by `imageDependencies` and declared asynchronous setup by
+`prepare` (see above). Undeclared asynchronous work is captured in whatever
+state it reached in the single frame.
 
 ## Caching
 
@@ -378,15 +403,18 @@ avoid both re-rendering and marker churn.
 
 `MarkerIconRenderer` bounds resource usage during batch rendering:
 
-- `maxConcurrentRenders` (default 3): additional renders wait in FIFO order,
+- `maxConcurrentRenders` (default 1): additional renders wait in FIFO order,
   capping how many detached render trees and uncompressed images exist at the
   same time (relevant when prewarming many markers at once). Set to null to
-  disable the gate. Image-dependency decoding happens before a slot is taken,
-  so slow networks never starve the gate.
+  disable the gate.
+- `maxConcurrentImageLoads` (default 1): image-backed jobs use a separate FIFO
+  gate and retain its permit through capture. This bounds decoded native images,
+  while an image-free render can bypass a stalled provider. Set to null to disable
+  the image gate.
 - `maxRasterPixels` (default 4194304, a 2048 x 2048 physical bitmap): a
-  render whose `width x height x pixelRatio^2` exceeds the budget throws
-  `ArgumentError` instead of allocating an enormous bitmap. Set to null to
-  disable the check.
+  render whose rounded physical output area exceeds the budget throws
+  `ArgumentError` instead of allocating an enormous bitmap. Set to null to disable
+  the check.
 
 ## Important notes
 
@@ -394,8 +422,8 @@ avoid both re-rendering and marker churn.
 - `PinConfig` currently has an upstream iOS caveat where the marker may fail to render: https://issuetracker.google.com/issues/370536110
 - Web advanced markers require the Google Maps JavaScript `marker` library
 - The package only renders widgets and builds marker objects; you still need normal Google Maps API key and manifest setup
-- In multi-view scenarios (desktop window embedding), pass `context` so the renderer resolves the `FlutterView` the marker belongs to
-- The marker types come from `google_maps_flutter_platform_interface`, the same declarations `google_maps_flutter` re-exports; depending on both is intentional and conflict-free
+- In multi-view scenarios, pass `context` so the renderer resolves the `FlutterView` the marker belongs to
+- Google Maps types come from the supported `google_maps_flutter` facade; `marker_widget` re-exports the subset used by its API
 
 ## Example
 

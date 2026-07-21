@@ -52,13 +52,11 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
     'GOOGLE_MAPS_ADVANCED_MAP_ID',
   );
 
-  final Completer<GoogleMapController> _controller =
-      Completer<GoogleMapController>();
-
   _DemoMode _mode = _DemoMode.classicMarker;
   Set<Marker> _markers = <Marker>{};
   Set<GroundOverlay> _groundOverlays = <GroundOverlay>{};
   bool _isLoading = false;
+  int _loadGeneration = 0;
   String _statusMessage = 'Classic marker built with Widget.toMarker().';
 
   String? get _advancedMapId =>
@@ -80,11 +78,24 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
       ..drawCircle(const Offset(16, 16), 16, Paint()..color = color)
       ..drawCircle(const Offset(16, 12), 6, Paint()..color = Colors.white)
       ..drawCircle(const Offset(16, 30), 11, Paint()..color = Colors.white);
-    final ui.Image image = await recorder.endRecording().toImage(32, 32);
-    final ByteData byteData = (await image.toByteData(
-      format: ui.ImageByteFormat.png,
-    ))!;
-    image.dispose();
+    final ui.Picture picture = recorder.endRecording();
+    late final ByteData byteData;
+    try {
+      final ui.Image image = await picture.toImage(32, 32);
+      try {
+        final ByteData? encoded = await image.toByteData(
+          format: ui.ImageByteFormat.png,
+        );
+        if (encoded == null) {
+          throw StateError('Failed to encode the example avatar.');
+        }
+        byteData = encoded;
+      } finally {
+        image.dispose();
+      }
+    } finally {
+      picture.dispose();
+    }
 
     final MemoryImage provider = MemoryImage(Uint8List.sublistView(byteData));
     _avatarImage = provider;
@@ -100,23 +111,26 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
   }
 
   Future<void> _loadModeContent() async {
-    if (_isLoading) {
-      return;
-    }
+    final int generation = ++_loadGeneration;
+    final _DemoMode requestedMode = _mode;
 
     setState(() {
       _isLoading = true;
     });
 
     final ThemeData theme = Theme.of(context);
+    final Locale? locale = Localizations.maybeLocaleOf(context);
 
     try {
-      switch (_mode) {
+      switch (requestedMode) {
         case _DemoMode.classicMarker:
           final MemoryImage avatar = await _ensureAvatarImage(
             theme.colorScheme.tertiary,
           );
           if (!mounted) {
+            return;
+          }
+          if (generation != _loadGeneration) {
             return;
           }
 
@@ -142,15 +156,15 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
                   cacheKey: MarkerCacheKey(
                     'classic-marker',
                     brightness: theme.brightness,
-                    locale: Localizations.maybeLocaleOf(context),
+                    locale: locale,
                   ),
-                  // The avatar is declared, so the renderer decodes it
-                  // before capture and it can never come out blank.
-                  imageDependencies: [avatar],
+                  // The avatar is declared, so its provider is decoded and
+                  // retained before the standard Image paints.
+                  imageDependencies: [MarkerImageDependency(avatar)],
                 ),
               );
 
-          if (!mounted) {
+          if (!_isCurrentLoad(generation)) {
             return;
           }
 
@@ -161,7 +175,7 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
           });
         case _DemoMode.advancedPin:
           if (_advancedMapId == null) {
-            if (!mounted) {
+            if (!_isCurrentLoad(generation)) {
               return;
             }
 
@@ -205,7 +219,7 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
                 bitmapOptions: const MapBitmapOptions(width: 28, height: 28),
               );
 
-          if (!mounted) {
+          if (!_isCurrentLoad(generation)) {
             return;
           }
 
@@ -243,7 +257,7 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
             zIndex: 1,
           );
 
-          if (!mounted) {
+          if (!_isCurrentLoad(generation)) {
             return;
           }
 
@@ -256,7 +270,7 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
       }
     } catch (error, stackTrace) {
       debugPrint('Failed to build example content: $error\n$stackTrace');
-      if (!mounted) {
+      if (!_isCurrentLoad(generation)) {
         return;
       }
       setState(() {
@@ -265,13 +279,16 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
         _statusMessage = 'Failed to build example content: $error';
       });
     } finally {
-      if (mounted) {
+      if (_isCurrentLoad(generation)) {
         setState(() {
           _isLoading = false;
         });
       }
     }
   }
+
+  bool _isCurrentLoad(int generation) =>
+      mounted && generation == _loadGeneration;
 
   void _onModeChanged(Set<_DemoMode> selection) {
     final _DemoMode nextMode = selection.first;
@@ -342,12 +359,11 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
             ),
           Expanded(
             child: GoogleMap(
+              key: ValueKey<(bool, String?)>((
+                useAdvancedMarkers,
+                _advancedMapId,
+              )),
               initialCameraPosition: _initialCameraPosition,
-              onMapCreated: (GoogleMapController controller) {
-                if (!_controller.isCompleted) {
-                  _controller.complete(controller);
-                }
-              },
               mapId: useAdvancedMarkers ? _advancedMapId : null,
               markerType: useAdvancedMarkers
                   ? GoogleMapMarkerType.advancedMarker

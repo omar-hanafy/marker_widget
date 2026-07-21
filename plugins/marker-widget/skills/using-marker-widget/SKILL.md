@@ -5,8 +5,9 @@ description: Use when adding widget-rendered markers, advanced marker pins, or g
 
 # Using marker_widget
 
-marker_widget renders any Flutter widget off-screen into PNG bytes and wraps them as
-google_maps_flutter bitmap/marker types. Core principle: two separate option layers.
+marker_widget renders a self-contained, rasterizable Flutter snapshot widget
+off-screen into PNG bytes and wraps it as google_maps_flutter bitmap/marker types.
+Core principle: two separate option layers.
 `MarkerRenderOptions` controls how the widget is rasterized (render size, DPR, image
 dependencies); `MapBitmapOptions` controls how the map displays the bytes (on-map
 size). Never try to control on-map size with render options or vice versa.
@@ -15,16 +16,13 @@ Audience: developers integrating marker_widget into an app. Inputs you need: the
 consumer project, what should appear on the map (classic marker, advanced pin, ground
 overlay), and where icons vary (per-user, per-theme, per-locale).
 
-Not for: general google_maps_flutter setup (API keys, manifests), upgrading from
-marker_widget 1.x or 2.x (use marker-widget:migrating-marker-widget-v1-to-v2 or
-marker-widget:migrating-marker-widget-v2-to-v3), or diagnosing broken output (use
-marker-widget:troubleshooting-marker-widget).
+Not for: general google_maps_flutter setup (API keys, manifests) or diagnosing broken
+output (use marker-widget:troubleshooting-marker-widget).
 
 ## Step 1: Inspect before writing code
 
 1. `pubspec.yaml` / lockfile: confirm `marker_widget` 3.x and `google_maps_flutter`
-   >= 2.17.1. If the project is on marker_widget 1.x or 2.x, STOP and switch to the
-   matching migration skill first.
+   >= 2.17.1.
 2. Check SDK floors: Dart ^3.12.0, Flutter >= 3.44.0. If the project cannot meet
    them, marker_widget 3.x is not installable; say so instead of forcing constraints.
 3. Note target platforms (android/ios/web only; google_maps_flutter has no desktop
@@ -72,16 +70,27 @@ Decision points:
 
 - Any image the widget displays (`Image`, `DecorationImage`,
   `CircleAvatar.backgroundImage`, network/asset/file/memory providers) MUST be
-  declared in `renderOptions.imageDependencies` with the same provider instance the
-  widget uses. The renderer decodes every declared provider before capture and keeps
-  it alive until capture finishes - deterministic, no delays, no blank markers. A
-  provider that fails throws `MarkerImageLoadException`; catch it where a placeholder
-  fallback is wanted.
-- Runtime-loaded fonts (google_fonts, `FontLoader`) need no declaration: `await` the
-  font load once before rendering.
+  declared as a `MarkerImageDependency` in `renderOptions.imageDependencies` with a
+  provider that resolves to the same cache key as the widget's provider. Reusing the
+  same instance is simplest. Set `configurationSize` to the exact layout
+  size passed to a size-sensitive `Image` or `DecorationImage`. The renderer decodes
+  every declared provider before capture and keeps it alive until capture finishes -
+  deterministic, no delays, no blank markers. A provider that fails throws
+  `MarkerImageLoadException`; catch it where a placeholder fallback is wanted.
+  Decode readiness does not settle wrapper-owned placeholders, animations, or
+  later-frame state; those wrappers paint whatever their single build-and-paint pass
+  produces.
+- Use `prepare:` for asynchronous resources other than declared images, including
+  runtime-loaded fonts and data. The renderer awaits it before image resolution and
+  rasterization. It runs only on a cache miss, so include the prepared content's
+  revision in `cacheKey` whenever it changes pixels.
 - Pass `context:` whenever the widget uses Theme, MediaQuery, Directionality,
-  Localizations, DefaultAssetBundle, or context-based state (Provider etc.). Omit only
-  for fully self-contained icons. Note: inside the render tree, `MediaQuery.size`
+  or DefaultAssetBundle. The context locale configures image-provider resolution,
+  but localization resources are not reloaded; pass already resolved localized
+  values into the widget. Arbitrary inherited state such as Provider, Riverpod,
+  Bloc, Navigator, Overlay, and Scaffold is not captured. Pass those values into the
+  marker widget or wrap the supplied widget with the required scope. Omit `context`
+  only for fully self-contained icons. Inside the render tree, `MediaQuery.size`
   equals the marker's `logicalSize`, not the screen.
 - Rendering is async and must happen on the UI isolate after
   `WidgetsFlutterBinding.ensureInitialized()`; never in `compute`/isolates.
@@ -131,7 +140,8 @@ symptoms to causes.
 `toMarker(context: context, base: Marker(markerId: MarkerId(driver.id), position:
 driver.latLng), renderOptions: MarkerRenderOptions(logicalSize: const Size(56, 56),
 cacheKey: MarkerCacheKey(driver.id, brightness: Theme.of(context).brightness,
-extra: driver.status), imageDependencies: [avatar]))`; store results in a
+extra: driver.status), imageDependencies: [MarkerImageDependency(avatar,
+configurationSize: const Size(56, 56))]))`; store results in a
 `Set<Marker>`; rebuild only markers whose status changed (cache serves the rest).
 
 Full API tables, defaults, and exact error strings: ../../references/api-quick-reference.md

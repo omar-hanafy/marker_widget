@@ -23,8 +23,11 @@ first-time integration (marker-widget:using-marker-widget).
    input = stale icon when that input changes. The renderer keys every cache entry by
    the resolved logicalSize and pixelRatio automatically, so `MarkerCacheKey` carries
    only content inputs and a reused key can never return a wrong-sized icon. `extra`
-   compares with `==`: use records or other value-equal types; a plain `List`/`Map`
-   compares by identity and silently defeats caching (safe but wasteful misses).
+   compares with `==`: use immutable records or other value-equal types. Fresh
+   identity-based collections miss the cache; mutating and reusing one can return
+   stale output.
+   When `MarkerRenderOptions.prepare` supplies content, include that content's
+   revision because preparation is skipped on cache hits.
 3. Keys that over-encode (e.g. include a timestamp or camera position) defeat caching
    entirely. If `cacheSize` grows with every frame, the key is over-encoded.
 
@@ -67,12 +70,12 @@ is silently never cached - if `isCached(key)` stays false after a render, check 
 size vs the cap. `maxCacheBytes` measures encoded PNG bytes, not the platform map's
 decoded bitmap memory.
 
-The renderer also bounds render throughput: `maxConcurrentRenders` (default 3)
-queues extra renders in FIFO order so a 200-marker prewarm cannot hold 200 detached
-render trees at once, and `maxRasterPixels` (default one 2048x2048 physical bitmap)
-rejects accidental giant renders with `ArgumentError`. Image-dependency decoding
-happens before a concurrency slot is taken, so slow networks never starve the gate.
-Raise or disable (null) either limit only with measured evidence.
+The renderer also bounds throughput: `maxConcurrentRenders` (default 1) queues
+detached render trees in FIFO order, while `maxConcurrentImageLoads` (default 1)
+separately bounds image-backed jobs from dependency resolution through capture.
+Image-free jobs can bypass a stalled provider. `maxRasterPixels` (default one
+2048x2048 physical bitmap) rejects accidental giant outputs using their exact
+rounded physical area. Raise or disable (null) a limit only with measured evidence.
 
 ### Step 5: Verify with numbers
 

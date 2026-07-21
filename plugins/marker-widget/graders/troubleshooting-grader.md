@@ -10,9 +10,10 @@ Award points (sum, cap at 1.0):
 - 0.4: correctly identifies the root cause: the widget is captured before the
   network image has decoded (async image not painted at snapshot time), and explains
   why debug sometimes works (timing) rather than calling it a release-mode bug.
-- 0.3: primary fix is declaring the avatar's provider in
-  `renderOptions.imageDependencies` (the same provider instance the widget
-  displays), so the renderer decodes it before capture. Recommending only
+- 0.3: primary fix is declaring `MarkerImageDependency(avatar)` in
+  `renderOptions.imageDependencies`, where `avatar` resolves to the same cache key
+  as the provider the widget displays, so the renderer decodes it before capture.
+  Reusing the same instance is the simplest correct example. Recommending only
   `precacheImage` without `imageDependencies` earns at most half of this bullet
   (it narrows the race but is not the package's guaranteed path).
 - 0.2: correctly characterizes the 3.x readiness contract: declared dependencies
@@ -24,7 +25,6 @@ Award points (sum, cap at 1.0):
 
 Score 0.0 if the diagnosis blames release-mode tree shaking, missing internet
 permission alone, or Google Maps configuration without identifying the async-image
-capture cause, or if the recommended fix relies on APIs that do not exist in 3.x
-(`waitForImages`, `initialImageDelay`, `imageRepaintDelay`).
+capture cause, or if the recommended fix invents an API that is not in the package.
 
 Respond with only a JSON object: {"score": 0.0..1.0, "reasoning": "..."}
