@@ -487,6 +487,25 @@ void main() {
       expect(marker.icon, isA<BytesMapBitmap>());
     });
 
+    test('toMarker rejects an AdvancedMarker base', () {
+      final icon = buildIcon();
+      final advanced = AdvancedMarker(
+        markerId: const MarkerId('adv'),
+        position: const LatLng(1, 2),
+      );
+
+      expect(
+        () => icon.toMarker(base: advanced),
+        throwsA(
+          isA<ArgumentError>().having(
+            (e) => e.message,
+            'message',
+            contains('toAdvancedMarker'),
+          ),
+        ),
+      );
+    });
+
     test(
       'toAdvancedMarker forwards the base advanced marker configuration',
       () {

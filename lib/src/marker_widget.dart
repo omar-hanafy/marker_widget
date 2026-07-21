@@ -254,10 +254,26 @@ class MarkerIcon {
   }
 
   /// Builds a classic [Marker] using this icon.
+  ///
+  /// Throws [ArgumentError] when [base] is an [AdvancedMarker]. Advanced
+  /// markers extend [Marker], so they would otherwise flow through the
+  /// classic marker pipeline silently; use [toAdvancedMarker] or
+  /// [toAdvancedPinMarker] for them instead.
   Marker toMarker({
     required Marker base,
     MapBitmapOptions bitmapOptions = const MapBitmapOptions(),
-  }) => base.copyWith(iconParam: toBitmapDescriptor(options: bitmapOptions));
+  }) {
+    if (base is AdvancedMarker) {
+      throw ArgumentError.value(
+        base,
+        'base',
+        'AdvancedMarker cannot go through toMarker; use toAdvancedMarker or '
+            'toAdvancedPinMarker so it is delivered to the map as an '
+            'advanced marker.',
+      );
+    }
+    return base.copyWith(iconParam: toBitmapDescriptor(options: bitmapOptions));
+  }
 
   /// Builds an [AdvancedMarker] using this icon.
   ///
