@@ -728,13 +728,22 @@ class MarkerIconRenderer {
       return implicitView;
     }
 
-    if (dispatcher.views.isNotEmpty) {
-      return dispatcher.views.first;
+    final Iterable<ui.FlutterView> views = dispatcher.views;
+    if (views.length == 1) {
+      return views.first;
+    }
+
+    if (views.isEmpty) {
+      throw StateError(
+        'No FlutterView is available. Ensure WidgetsFlutterBinding is '
+        'initialized before calling MarkerIconRenderer.render.',
+      );
     }
 
     throw StateError(
-      'No FlutterView is available. Ensure WidgetsFlutterBinding is '
-      'initialized before calling MarkerIconRenderer.render.',
+      'Multiple FlutterViews are available and none is the implicit view. '
+      'Pass a BuildContext to render so the renderer can resolve the view '
+      'the marker belongs to.',
     );
   }
 
