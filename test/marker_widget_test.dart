@@ -556,6 +556,8 @@ void main() {
       expect(renderer.enableCaching, isTrue);
       expect(renderer.maxCacheEntries, 64);
       expect(renderer.maxCacheBytes, 50 * 1024 * 1024);
+      expect(renderer.maxConcurrentRenders, 3);
+      expect(renderer.maxRasterPixels, 4 * 1024 * 1024);
       expect(renderer.cacheSize, 0);
       expect(renderer.cacheSizeInBytes, 0);
     });
@@ -586,6 +588,141 @@ void main() {
             MarkerIconRenderer(defaultLogicalSize: const Size(double.nan, 96)),
         throwsA(isA<ArgumentError>()),
       );
+      expect(
+        () => MarkerIconRenderer(maxConcurrentRenders: 0),
+        throwsA(isA<ArgumentError>()),
+      );
+      expect(
+        () => MarkerIconRenderer(maxRasterPixels: 0),
+        throwsA(isA<ArgumentError>()),
+      );
+    });
+
+    testWidgets('limits concurrent renders to maxConcurrentRenders', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(home: Scaffold(body: SizedBox.shrink())),
+      );
+
+      final renderer = MarkerIconRenderer(
+        maxConcurrentRenders: 2,
+        enableCaching: false,
+      );
+      final context = tester.element(find.byType(Scaffold));
+
+      var active = 0;
+      var maxActive = 0;
+      var completed = 0;
+
+      await tester.runAsync(
+        () => Future.wait<MarkerIcon>([
+          for (var i = 0; i < 8; i++)
+            renderer.render(
+              _LifecycleProbe(
+                onInit: () {
+                  active++;
+                  if (active > maxActive) {
+                    maxActive = active;
+                  }
+                },
+                onDispose: () {
+                  active--;
+                  completed++;
+                },
+              ),
+              context: context,
+              options: const WidgetBitmapRenderOptions(
+                logicalSize: Size(16, 16),
+                pixelRatio: 1.0,
+              ),
+            ),
+        ]),
+      );
+
+      expect(completed, 8);
+      expect(maxActive, lessThanOrEqualTo(2));
+    });
+
+    testWidgets('renders all widgets concurrently when the gate is disabled', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(home: Scaffold(body: SizedBox.shrink())),
+      );
+
+      final renderer = MarkerIconRenderer(
+        maxConcurrentRenders: null,
+        enableCaching: false,
+      );
+      final context = tester.element(find.byType(Scaffold));
+
+      var active = 0;
+      var maxActive = 0;
+
+      await tester.runAsync(
+        () => Future.wait<MarkerIcon>([
+          for (var i = 0; i < 8; i++)
+            renderer.render(
+              _LifecycleProbe(
+                onInit: () {
+                  active++;
+                  if (active > maxActive) {
+                    maxActive = active;
+                  }
+                },
+                onDispose: () => active--,
+              ),
+              context: context,
+              options: const WidgetBitmapRenderOptions(
+                logicalSize: Size(16, 16),
+                pixelRatio: 1.0,
+              ),
+            ),
+        ]),
+      );
+
+      expect(maxActive, greaterThan(2));
+    });
+
+    testWidgets('rejects renders above maxRasterPixels', (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(home: Scaffold(body: SizedBox.shrink())),
+      );
+
+      final renderer = MarkerIconRenderer(maxRasterPixels: 1000);
+      final context = tester.element(find.byType(Scaffold));
+
+      await expectLater(
+        renderer.render(
+          const SizedBox(),
+          context: context,
+          options: const WidgetBitmapRenderOptions(
+            logicalSize: Size(20, 20),
+            pixelRatio: 2.0,
+          ),
+        ),
+        throwsA(
+          isA<ArgumentError>().having(
+            (e) => e.message,
+            'message',
+            contains('maxRasterPixels'),
+          ),
+        ),
+      );
+
+      final withinBudget = await tester.runAsync(
+        () => renderer.render(
+          const SizedBox(),
+          context: context,
+          options: const WidgetBitmapRenderOptions(
+            logicalSize: Size(20, 20),
+            pixelRatio: 1.0,
+          ),
+        ),
+      );
+
+      expect(withinBudget!.bytes, isNotEmpty);
     });
 
     testWidgets('rejects non-finite logical size and pixel ratio', (

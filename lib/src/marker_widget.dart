@@ -363,6 +363,8 @@ class MarkerIconRenderer {
     this.enableCaching = true,
     this.maxCacheEntries = 64,
     this.maxCacheBytes = 50 * 1024 * 1024,
+    this.maxConcurrentRenders = 3,
+    this.maxRasterPixels = 4 * 1024 * 1024,
     this.initialImageDelay = const Duration(milliseconds: 16),
     this.imageRepaintDelay = const Duration(milliseconds: 200),
   }) {
@@ -385,6 +387,20 @@ class MarkerIconRenderer {
       throw ArgumentError.value(
         maxCacheBytes,
         'maxCacheBytes',
+        'must be > 0 when provided.',
+      );
+    }
+    if (maxConcurrentRenders != null && maxConcurrentRenders! <= 0) {
+      throw ArgumentError.value(
+        maxConcurrentRenders,
+        'maxConcurrentRenders',
+        'must be > 0 when provided.',
+      );
+    }
+    if (maxRasterPixels != null && maxRasterPixels! <= 0) {
+      throw ArgumentError.value(
+        maxRasterPixels,
+        'maxRasterPixels',
         'must be > 0 when provided.',
       );
     }
@@ -416,8 +432,29 @@ class MarkerIconRenderer {
 
   /// The maximum total cache size in bytes.
   ///
-  /// Set to null to disable memory-based eviction.
+  /// This measures the encoded PNG bytes held by the cache, not the decoded
+  /// bitmap memory the platform map allocates for the icons. Set to null to
+  /// disable memory-based eviction. Icons larger than the limit are returned
+  /// to the caller but silently skipped by the cache.
   final int? maxCacheBytes;
+
+  /// The maximum number of off-screen render trees allowed to exist at the
+  /// same time.
+  ///
+  /// Additional [render] calls wait for a slot in FIFO order. Every detached
+  /// render tree holds a widget tree, layers, and an uncompressed image, so
+  /// bounding concurrency bounds the transient memory of batch renders (for
+  /// example, prewarming 100 marker icons at once). Set to null to start all
+  /// renders immediately.
+  final int? maxConcurrentRenders;
+
+  /// The maximum number of physical pixels a single render may rasterize,
+  /// computed as logical width times height times the pixel ratio squared.
+  ///
+  /// Renders above the budget throw [ArgumentError] instead of accidentally
+  /// allocating enormous bitmaps. The default of 4194304 equals a 2048 x
+  /// 2048 physical bitmap. Set to null to disable the check.
+  final int? maxRasterPixels;
 
   /// Delay before checking whether images might still be loading.
   final Duration initialImageDelay;
@@ -439,6 +476,8 @@ class MarkerIconRenderer {
   int _currentCacheBytes = 0;
   final Map<_ResolvedCacheKey, _PendingRender> _pending =
       <_ResolvedCacheKey, _PendingRender>{};
+  int _activeRenders = 0;
+  final Queue<Completer<void>> _renderQueue = Queue<Completer<void>>();
 
   /// Renders [widget] into a [MarkerIcon].
   ///
@@ -478,6 +517,21 @@ class MarkerIconRenderer {
 
     final double dpr = options.pixelRatio ?? view.devicePixelRatio;
 
+    final int? rasterBudget = maxRasterPixels;
+    if (rasterBudget != null) {
+      final double rasterPixels = (size.width * dpr) * (size.height * dpr);
+      if (rasterPixels > rasterBudget) {
+        throw ArgumentError.value(
+          size,
+          'options.logicalSize',
+          'Rendering ${size.width} x ${size.height} at pixel ratio $dpr '
+              'rasterizes ${rasterPixels.ceil()} physical pixels, above '
+              'maxRasterPixels ($rasterBudget). Reduce the marker size or '
+              'pixel ratio, or raise/disable maxRasterPixels.',
+        );
+      }
+    }
+
     final Object? cacheKey = enableCaching ? options.cacheKey : null;
     final _ResolvedCacheKey? key = cacheKey == null
         ? null
@@ -496,15 +550,17 @@ class MarkerIconRenderer {
       }
     }
 
-    final Future<MarkerIcon> renderFuture = _doRender(
-      widget,
-      context: context,
-      view: view,
-      size: size,
-      dpr: dpr,
-      waitForImages: options.waitForImages,
-      initialImageDelay: options.initialImageDelay ?? initialImageDelay,
-      imageRepaintDelay: options.imageRepaintDelay ?? imageRepaintDelay,
+    final Future<MarkerIcon> renderFuture = _withRenderSlot(
+      () => _doRender(
+        widget,
+        context: context,
+        view: view,
+        size: size,
+        dpr: dpr,
+        waitForImages: options.waitForImages,
+        initialImageDelay: options.initialImageDelay ?? initialImageDelay,
+        imageRepaintDelay: options.imageRepaintDelay ?? imageRepaintDelay,
+      ),
     );
 
     _PendingRender? pendingEntry;
@@ -577,6 +633,36 @@ class MarkerIconRenderer {
       }
     }
     return match;
+  }
+
+  /// Runs [startRender] inside the FIFO concurrency gate.
+  ///
+  /// New arrivals queue whenever a limit is set and either all slots are
+  /// taken or earlier callers are already waiting, so waiters are served
+  /// strictly in order.
+  Future<MarkerIcon> _withRenderSlot(
+    Future<MarkerIcon> Function() startRender,
+  ) async {
+    final int? limit = maxConcurrentRenders;
+    if (limit == null) {
+      return startRender();
+    }
+
+    if (_activeRenders >= limit || _renderQueue.isNotEmpty) {
+      final Completer<void> slot = Completer<void>();
+      _renderQueue.add(slot);
+      await slot.future;
+    }
+
+    _activeRenders += 1;
+    try {
+      return await startRender();
+    } finally {
+      _activeRenders -= 1;
+      if (_renderQueue.isNotEmpty) {
+        _renderQueue.removeFirst().complete();
+      }
+    }
   }
 
   Future<MarkerIcon> _doRender(
