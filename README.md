@@ -7,11 +7,11 @@ Render Flutter widgets into Google Maps bitmaps, glyphs, markers, and ground ove
 ## AI coding-assistant support (agent plugin)
 
 Package-specific support for **Claude Code** and **OpenAI Codex** ships from this
-repository as an installable agent plugin: four skills (correct integration and
-sizing, cache/performance tuning, symptom-based troubleshooting, and a guided
-v1-to-v2 migration) plus a read-only reviewer agent for Claude Code. This is tooling
-for coding agents, not a runtime feature of the Dart package, and it is not part of
-the pub.dev archive.
+repository as an installable agent plugin: five skills (correct integration and
+sizing, cache/performance tuning, symptom-based troubleshooting, and guided
+v1-to-v2 and v2-to-v3 migrations) plus a read-only reviewer agent for Claude Code.
+This is tooling for coding agents, not a runtime feature of the Dart package, and it
+is not part of the pub.dev archive.
 
 Claude Code (CLI or `/plugin` in a session):
 
@@ -32,15 +32,15 @@ Start a new agent session after installing (Codex requires it; it is good hygien
 Claude Code too). Then try:
 
 - "My marker_widget avatars from Image.network render as blank circles - fix it."
-- "Migrate this app from marker_widget 1.1.0 to 2.0.0."
+- "Migrate this app from marker_widget 2.0.1 to 3.0.0."
 - Explicit invocation: `/marker-widget:troubleshooting-marker-widget` in Claude Code,
   or `$troubleshooting-marker-widget` in Codex.
 
 The plugin contains instructions and reference documents only: no hooks, no MCP
 servers, no executable scripts, no network access; the reviewer agent is restricted
-to read-only tools. Compatibility: marker_widget 2.x (migration skill covers 1.x to
-2.x); verified with Claude Code 2.1.x and codex-cli 0.144.x. Update with
-`claude plugin update marker-widget` / `codex plugin marketplace upgrade
+to read-only tools. Compatibility: marker_widget 3.x (migration skills cover 1.x to
+2.x and 2.x to 3.x); verified with Claude Code 2.1.x and codex-cli 0.144.x. Update
+with `claude plugin update marker-widget` / `codex plugin marketplace upgrade
 marker-widget`; uninstall with `claude plugin uninstall marker-widget` /
 `codex plugin remove marker-widget@marker-widget`.
 
@@ -53,7 +53,9 @@ recipe, maintainer guide): [`plugins/marker-widget/README.md`](plugins/marker-wi
 - Build classic `Marker` and `AdvancedMarker` objects directly
 - Create `BitmapGlyph` and `PinConfig` from widgets for advanced marker pins
 - Create raw `BytesMapBitmap` instances for `GroundOverlay`
+- Deterministic image readiness: declare `imageDependencies` and the renderer decodes them before capture - no delays, no blank markers
 - Separate render options from map bitmap options for cleaner sizing control
+- Collision-safe structured cache keys with `MarkerCacheKey`
 - LRU cache keyed by cache key, size, and pixel ratio, with entry limits, byte limits, and in-flight deduplication
 - Stable descriptor identity, so unchanged markers never resend icon bytes to the map
 - FIFO-bounded render concurrency and a per-render raster pixel budget
@@ -64,8 +66,8 @@ recipe, maintainer guide): [`plugins/marker-widget/README.md`](plugins/marker-wi
 dependencies:
   flutter:
     sdk: flutter
-  google_maps_flutter: ^2.15.0
-  marker_widget: ^2.1.0
+  google_maps_flutter: ^2.17.1
+  marker_widget: ^3.0.0
 ```
 
 Then run:
@@ -73,6 +75,8 @@ Then run:
 ```bash
 flutter pub get
 ```
+
+Requires Dart `^3.12.0` and Flutter `>=3.44.0`.
 
 ## Quick start
 
@@ -91,12 +95,10 @@ final marker = await MyMarkerCard().toMarker(
     infoWindow: InfoWindow(title: 'Coffee shop'),
     zIndexInt: 1,
   ),
-  renderOptions: WidgetBitmapRenderOptions(
+  renderOptions: MarkerRenderOptions(
     logicalSize: const Size(96, 96),
-    cacheKey: buildMarkerCacheKey(
-      id: 'coffee-shop',
-      logicalSize: const Size(96, 96),
-      pixelRatio: MediaQuery.devicePixelRatioOf(context),
+    cacheKey: MarkerCacheKey(
+      'coffee-shop',
       brightness: Theme.of(context).brightness,
       locale: Localizations.maybeLocaleOf(context),
     ),
@@ -122,7 +124,7 @@ final advancedMarker = await MyAvatarBadge().toAdvancedPinMarker(
   ),
   backgroundColor: Colors.white,
   borderColor: Colors.indigo,
-  renderOptions: const WidgetBitmapRenderOptions(
+  renderOptions: const MarkerRenderOptions(
     logicalSize: Size(28, 28),
   ),
   bitmapOptions: const MapBitmapOptions(width: 28, height: 28),
@@ -140,7 +142,7 @@ Advanced markers also need:
 ```dart
 final overlayBitmap = await MyOverlayCard().toGroundOverlayBitmap(
   context: context,
-  renderOptions: const WidgetBitmapRenderOptions(
+  renderOptions: const MarkerRenderOptions(
     logicalSize: Size(180, 120),
   ),
 );
@@ -155,27 +157,26 @@ final overlay = GroundOverlay.fromBounds(
 );
 ```
 
-## The v2 model
+## The v3 model
 
-v2 splits marker creation into two layers:
+Marker creation is split into two layers:
 
-- `WidgetBitmapRenderOptions` controls how the widget is rendered off-screen
+- `MarkerRenderOptions` controls how the widget is rendered off-screen
 - `MapBitmapOptions` controls how the rendered bytes are interpreted on the map
 
-That means render size and display size are no longer mixed together.
-
-v2 also uses real upstream `Marker` and `AdvancedMarker` objects as the build
-input, so `marker_widget` stays focused on rasterization instead of mirroring
-Google Maps constructors.
+That means render size and display size are never mixed together. Marker builder
+APIs take real upstream `Marker` and `AdvancedMarker` objects as the build input,
+so `marker_widget` stays focused on rasterization instead of mirroring Google
+Maps constructors.
 
 ### Widget render options
 
 ```dart
-const renderOptions = WidgetBitmapRenderOptions(
-  logicalSize: Size(96, 96),
+final renderOptions = MarkerRenderOptions(
+  logicalSize: const Size(96, 96),
   pixelRatio: 3.0,
-  waitForImages: true,
-  cacheKey: 'user:42:light:96x96',
+  cacheKey: const MarkerCacheKey('user-42', brightness: Brightness.light),
+  imageDependencies: [NetworkImage(user.avatarUrl)],
 );
 ```
 
@@ -195,6 +196,44 @@ Behavior rules:
 - If `bitmapScaling` is `MapBitmapScaling.none`, `width`, `height`, and `imagePixelRatio` must stay null
 - `toGroundOverlayBitmap()` is a discoverability alias for the raw `MapBitmapScaling.none` path
 
+## Images inside markers: declare them
+
+The renderer captures one deterministic frame. Network, file, asset, and memory
+images decode asynchronously, so a widget that displays them would capture blank
+unless the renderer waits for the decode. Declare every `ImageProvider` the
+widget displays and the renderer guarantees they are decoded before capture:
+
+```dart
+final avatar = NetworkImage(user.avatarUrl);
+
+final marker = await DriverBadge(avatar: avatar).toMarker(
+  context: context,
+  base: Marker(markerId: MarkerId(user.id), position: user.position),
+  renderOptions: MarkerRenderOptions(
+    logicalSize: const Size(56, 56),
+    cacheKey: MarkerCacheKey(user.id, extra: user.status),
+    imageDependencies: [avatar],
+  ),
+);
+```
+
+The contract:
+
+- Each declared provider is resolved against the render environment (pixel
+  ratio, locale, text direction, asset bundle) and awaited to full decode
+  before the widget tree is built.
+- The decoded images are kept alive until the capture completes, so they
+  cannot be evicted mid-render.
+- Use the same provider instances (or providers with equal cache keys) as the
+  widget itself displays.
+- A provider that fails to load throws `MarkerImageLoadException` instead of
+  capturing a marker with a hole in it. Catch it to fall back to a placeholder
+  icon.
+
+Fonts loaded at runtime (for example `google_fonts` or `FontLoader`) are global
+once loaded: `await` the font load before rendering and the text paints
+correctly; no declaration is needed.
+
 ## Render once, reuse everywhere
 
 ```dart
@@ -204,7 +243,7 @@ class MarkerAssets {
   static Future<void> preload(BuildContext context) async {
     restaurant = await RestaurantPin().toMarkerIcon(
       context: context,
-      renderOptions: const WidgetBitmapRenderOptions(
+      renderOptions: const MarkerRenderOptions(
         logicalSize: Size(64, 64),
       ),
     );
@@ -252,14 +291,14 @@ Future<AdvancedMarker> toAdvancedPinMarker({
 You can omit `context` when you do not need to inherit theme, directionality,
 localizations, or the current asset bundle.
 
-`MarkerIcon` exposes the same bitmap, glyph, and builder methods synchronously after rendering.
+`MarkerIcon` exposes the same bitmap, glyph, and builder methods synchronously after rendering. Its bytes are defensively copied and unmodifiable, so an icon can never change after construction.
 
 ## What can be rendered
 
 The output is a static PNG snapshot of one widget, rendered once in a
 detached tree. Self-contained visual widgets (containers, text, icons,
-decorations, already-decoded images) render reliably. Not supported as marker
-content:
+decorations, images declared as dependencies) render reliably. Not supported
+as marker content:
 
 - platform views and texture-backed widgets (maps, video players, web views)
 - widgets that only settle in later frames or post-frame callbacks
@@ -279,23 +318,22 @@ Interactivity flattens: buttons and gestures inside the widget do nothing on
 the map. Marker taps and drags come from the `Marker` / `AdvancedMarker` you
 build, and when the widget's state changes you rerender and swap the icon.
 
-Network and asset images must be decoded before capture to appear in the
-snapshot; `waitForImages` is a best-effort, delay-based pass. Precache
-images (for example with `precacheImage`) before rendering for deterministic
-output.
+Images are covered by `imageDependencies` (see above); anything else
+asynchronous inside the widget is captured in whatever state it reached in
+the single frame.
 
 ## Caching
 
-The convenience extensions use `defaultMarkerIconRenderer`, which is exposed so
+The convenience extensions use `MarkerIconRenderer.shared`, which is exposed so
 you can inspect, clear, or prewarm the cache:
 
 ```dart
 // Clear on logout or theme change
-defaultMarkerIconRenderer.clearCache();
+MarkerIconRenderer.shared.clearCache();
 
 // Inspect
-print(defaultMarkerIconRenderer.cacheSize);
-print(defaultMarkerIconRenderer.cacheSizeInBytes);
+print(MarkerIconRenderer.shared.cacheSize);
+print(MarkerIconRenderer.shared.cacheSizeInBytes);
 ```
 
 `MarkerIconRenderer` supports:
@@ -308,9 +346,23 @@ print(defaultMarkerIconRenderer.cacheSizeInBytes);
 
 Cache entries are identified by `cacheKey` combined with the resolved logical
 size and pixel ratio, so one key can never return an icon rendered at another
-size. Everything else that changes the rendered pixels (brightness, locale,
-selection state) still belongs in the key itself; `buildMarkerCacheKey()`
-covers the common inputs.
+size. Everything else that changes the rendered pixels belongs in the key
+itself; `MarkerCacheKey` structures the common inputs:
+
+```dart
+final key = MarkerCacheKey(
+  user.id,
+  brightness: Theme.of(context).brightness,
+  locale: Localizations.maybeLocaleOf(context),
+  extra: (selected: isSelected, badge: badgeCount),
+);
+```
+
+`extra` is compared with `==`, so use values with structural equality; records
+work well. For cluster badges, `MarkerCacheKey.cluster(count: 27, ...)` builds
+count-aware keys that never collide with plain keys. Any custom object with
+value semantics also works as a `cacheKey`; `MarkerCacheKey` is a convenience,
+not a requirement.
 
 `maxCacheBytes` counts the encoded PNG bytes held by the cache, not the
 decoded bitmap memory the platform map allocates. Icons larger than the limit
@@ -329,23 +381,12 @@ avoid both re-rendering and marker churn.
 - `maxConcurrentRenders` (default 3): additional renders wait in FIFO order,
   capping how many detached render trees and uncompressed images exist at the
   same time (relevant when prewarming many markers at once). Set to null to
-  disable the gate.
+  disable the gate. Image-dependency decoding happens before a slot is taken,
+  so slow networks never starve the gate.
 - `maxRasterPixels` (default 4194304, a 2048 x 2048 physical bitmap): a
   render whose `width x height x pixelRatio^2` exceeds the budget throws
   `ArgumentError` instead of allocating an enormous bitmap. Set to null to
   disable the check.
-
-For cluster badges, `buildClusterCacheKey()` gives you a count-aware cache key helper:
-
-```dart
-final key = buildClusterCacheKey(
-  count: 27,
-  logicalSize: const Size(48, 48),
-  pixelRatio: MediaQuery.devicePixelRatioOf(context),
-  brightness: Theme.of(context).brightness,
-  locale: Localizations.maybeLocaleOf(context),
-);
-```
 
 ## Important notes
 
@@ -360,7 +401,7 @@ final key = buildClusterCacheKey(
 
 See [`example/lib/main.dart`](example/lib/main.dart) for a runnable demo that includes:
 
-- classic marker creation through `Widget.toMarker()`
+- classic marker creation through `Widget.toMarker()` with a declared image dependency
 - advanced marker pin creation through `Widget.toAdvancedPinMarker()`
 - ground overlay creation through `Widget.toGroundOverlayBitmap()`
 

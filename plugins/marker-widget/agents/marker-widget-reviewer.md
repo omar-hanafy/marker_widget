@@ -20,8 +20,8 @@ Locate every usage site:
 - Extension calls: `toBitmapDescriptor`, `toMapBitmap`, `toMarkerIcon`, `toMarker(`,
   `toAdvancedMarker`, `toAdvancedPinMarker`, `toPinConfig`, `toBitmapGlyph`,
   `toGroundOverlayBitmap`
-- Renderer usage: `MarkerIconRenderer(`, `defaultMarkerIconRenderer`, `.render(`
-- Key helpers: `buildMarkerCacheKey`, `buildClusterCacheKey`
+- Renderer usage: `MarkerIconRenderer(`, `MarkerIconRenderer.shared`, `.render(`
+- Keys and dependencies: `MarkerCacheKey`, `imageDependencies`
 
 Check each site against the full checklist in
 `${CLAUDE_PLUGIN_ROOT}/references/review-checklist.md` (read it before starting; it
@@ -30,10 +30,13 @@ modes, in priority order:
 
 1. HIGH: renders on hot paths (build, camera callbacks, listeners, loops) without a
    `cacheKey` (no caching, no dedup, full re-render every call).
-2. HIGH: cache keys missing inputs that change pixels (dpr, brightness, locale,
-   selection/status via `extra`) causing stale icons.
-3. HIGH: async images (`Image.network`, `CachedNetworkImage`) inside rendered widgets
-   without `precacheImage` or `waitForImages` (blank markers).
+2. HIGH: cache keys missing inputs that change pixels (brightness, locale,
+   selection/status via `extra`) causing stale icons, or `extra` values without
+   value equality causing permanent cache misses.
+3. HIGH: async images (`Image.network`, `CachedNetworkImage`, `DecorationImage`)
+   inside rendered widgets whose providers are not declared in
+   `imageDependencies` (blank markers), or declared-image failure paths without a
+   `MarkerImageLoadException` fallback where one is warranted.
 4. HIGH: renders in isolates/`compute` or before binding init (`No FlutterView`).
 5. HIGH: advanced markers missing `markerType: advancedMarker`, `mapId`, or web
    `&libraries=marker` (silently invisible markers).

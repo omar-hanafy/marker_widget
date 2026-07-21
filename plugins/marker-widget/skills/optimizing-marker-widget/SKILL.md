@@ -1,6 +1,6 @@
 ---
 name: optimizing-marker-widget
-description: Use when marker_widget markers are slow, cause jank, use too much memory, re-render repeatedly, or show stale icons after theme, locale, selection, or account changes - covers cacheKey design, buildMarkerCacheKey and buildClusterCacheKey, clearCache and removeFromCache invalidation, maxCacheEntries and maxCacheBytes tuning, render deduplication, and render-once preloading.
+description: Use when marker_widget markers are slow, cause jank, use too much memory, re-render repeatedly, or show stale icons after theme, locale, selection, or account changes - covers MarkerCacheKey design, clearCache and removeFromCache invalidation, maxCacheEntries and maxCacheBytes tuning, render deduplication, MarkerIconRenderer.shared, and render-once preloading.
 ---
 
 # Optimizing marker_widget caching and performance
@@ -9,7 +9,7 @@ Every render is a full off-screen widget build + rasterize + PNG encode on the U
 isolate. Performance work with this package is almost entirely about rendering less:
 correct cache keys, correct invalidation, and reuse.
 
-Audience: developers whose app already uses marker_widget 2.x. Inputs: the symptom
+Audience: developers whose app already uses marker_widget 3.x. Inputs: the symptom
 (jank, memory growth, stale icons, slow first paint) and the code paths that create
 markers. Not for: broken/blank output (marker-widget:troubleshooting-marker-widget) or
 first-time integration (marker-widget:using-marker-widget).
@@ -20,10 +20,11 @@ first-time integration (marker-widget:using-marker-widget).
    concurrent renders each pay full cost.
 2. A key must encode every content input that changes pixels: identity, brightness,
    locale, plus `extra:` for state (selected, count, badge, avatar revision). Missing
-   input = stale icon when that input changes. Since 2.1 the renderer also keys every
-   cache entry by the resolved logicalSize and pixelRatio automatically, so a reused
-   key can never return a wrong-sized icon; keeping size/DPR inside
-   `buildMarkerCacheKey` stays correct and readable.
+   input = stale icon when that input changes. The renderer keys every cache entry by
+   the resolved logicalSize and pixelRatio automatically, so `MarkerCacheKey` carries
+   only content inputs and a reused key can never return a wrong-sized icon. `extra`
+   compares with `==`: use records or other value-equal types; a plain `List`/`Map`
+   compares by identity and silently defeats caching (safe but wasteful misses).
 3. Keys that over-encode (e.g. include a timestamp or camera position) defeat caching
    entirely. If `cacheSize` grows with every frame, the key is over-encoded.
 
@@ -40,15 +41,15 @@ smell, fix first).
 
 | Class | Strategy |
 |---|---|
-| Static (a handful of pin styles) | Render once at startup or first map open into `MarkerIcon` objects, reuse with `icon.toMarker(base:)`. Zero renders afterwards; since 2.1 a reused icon also returns the identical descriptor, so rebuilt markers stay `==` and the map skips redundant platform icon updates |
-| Per-entity | `buildMarkerCacheKey(id: entity.id, ..., extra: visualState)`; keep using the shared `defaultMarkerIconRenderer` so eviction is centralized |
-| Cluster badges | `buildClusterCacheKey(count: n, ...)`; bucket counts (10, 50, 100+) via `extra` or by rounding `count` so 137 and 138 share one icon |
+| Static (a handful of pin styles) | Render once at startup or first map open into `MarkerIcon` objects, reuse with `icon.toMarker(base:)`. Zero renders afterwards; a reused icon also returns the identical descriptor, so rebuilt markers stay `==` and the map skips redundant platform icon updates |
+| Per-entity | `cacheKey: MarkerCacheKey(entity.id, brightness: ..., locale: ..., extra: visualState)`; keep using `MarkerIconRenderer.shared` so eviction is centralized |
+| Cluster badges | `MarkerCacheKey.cluster(count: n, ...)`; bucket counts (10, 50, 100+) via `extra` or by rounding `count` so 137 and 138 share one icon |
 | Per-frame | Restructure: precompute icon variants, select among them per frame instead of rendering per frame |
 
 ### Step 3: Invalidate deliberately
 
 - Theme/locale change: unnecessary if keys include `brightness`/`locale` (old entries
-  age out via LRU). If keys do not, call `defaultMarkerIconRenderer.clearCache()` on
+  age out via LRU). If keys do not, call `MarkerIconRenderer.shared.clearCache()` on
   change.
 - Logout/account switch: `clearCache()` always (user avatars must not survive).
 - One entity changed: `removeFromCache(key)` then re-render.
@@ -66,11 +67,12 @@ is silently never cached - if `isCached(key)` stays false after a render, check 
 size vs the cap. `maxCacheBytes` measures encoded PNG bytes, not the platform map's
 decoded bitmap memory.
 
-Since 2.1 the renderer also bounds render throughput: `maxConcurrentRenders`
-(default 3) queues extra renders in FIFO order so a 200-marker prewarm cannot hold
-200 detached render trees at once, and `maxRasterPixels` (default one 2048x2048
-physical bitmap) rejects accidental giant renders with `ArgumentError`. Raise or
-disable (null) either one only with measured evidence.
+The renderer also bounds render throughput: `maxConcurrentRenders` (default 3)
+queues extra renders in FIFO order so a 200-marker prewarm cannot hold 200 detached
+render trees at once, and `maxRasterPixels` (default one 2048x2048 physical bitmap)
+rejects accidental giant renders with `ArgumentError`. Image-dependency decoding
+happens before a concurrency slot is taken, so slow networks never starve the gate.
+Raise or disable (null) either limit only with measured evidence.
 
 ### Step 5: Verify with numbers
 
@@ -84,6 +86,9 @@ returns identical bytes without delay (wrap renders in `tester.runAsync`).
 
 - Stale icon after a state change: the changed input is missing from the key. Add it
   via `extra:` (do not switch to random keys).
+- Cache misses on every render despite stable inputs: `extra` (or the whole custom
+  key) lacks value equality - a fresh `List`/`Map`/object per build never equals the
+  previous one. Use records or a value-equal type.
 - Memory still growing: keys over-encoded (unbounded distinct keys) or a second
   renderer instance bypasses the bounded one; grep for `MarkerIconRenderer(`.
 - Jank persists though cache hits: too many markers overall or giant bitmaps; reduce
@@ -95,10 +100,10 @@ returns identical bytes without delay (wrap renders in `tester.runAsync`).
 
 "Map janks when 200 delivery markers load, and toggling dark mode leaves old-style
 pins": markers rendered per item in `build()` without keys. Fix: one
-`buildMarkerCacheKey(id: order.id, logicalSize: const Size(64, 64), pixelRatio: dpr,
-brightness: theme.brightness, extra: order.status)` per order; move rendering out of
-`build()` into the load path; result is 200 renders once, ~0 on rebuilds, dark-mode
-toggle renders fresh variants because `brightness` is in the key.
+`MarkerCacheKey(order.id, brightness: theme.brightness, extra: order.status)` per
+order; move rendering out of `build()` into the load path; result is 200 renders
+once, ~0 on rebuilds, dark-mode toggle renders fresh variants because `brightness`
+is in the key.
 
 Renderer/cache API details: ../../references/api-quick-reference.md. Codebase-wide
 audit checklist: ../../references/review-checklist.md (Claude Code users can run the
