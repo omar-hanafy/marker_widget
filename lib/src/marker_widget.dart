@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:equatable/equatable.dart';
-import 'package:flutter/foundation.dart' show listEquals;
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:google_maps_flutter_platform_interface/google_maps_flutter_platform_interface.dart';
@@ -82,10 +82,8 @@ class WidgetBitmapRenderOptions extends Equatable {
   const WidgetBitmapRenderOptions({
     this.logicalSize,
     this.pixelRatio,
-    this.waitForImages = false,
     this.cacheKey,
-    this.initialImageDelay,
-    this.imageRepaintDelay,
+    this.imageDependencies = const <ImageProvider>[],
   });
 
   /// The logical size to render. When null, the renderer's default is used.
@@ -94,27 +92,55 @@ class WidgetBitmapRenderOptions extends Equatable {
   /// The pixel ratio to render at. When null, the current view DPR is used.
   final double? pixelRatio;
 
-  /// Whether to do a second paint pass when image render objects are found.
-  final bool waitForImages;
-
   /// Optional cache key used by [MarkerIconRenderer].
   final Object? cacheKey;
 
-  /// Optional override for [MarkerIconRenderer.initialImageDelay].
-  final Duration? initialImageDelay;
-
-  /// Optional override for [MarkerIconRenderer.imageRepaintDelay].
-  final Duration? imageRepaintDelay;
+  /// Image providers that must be fully decoded before the widget is
+  /// captured.
+  ///
+  /// Declare every [ImageProvider] the widget displays (through [Image],
+  /// [DecorationImage], and so on). The renderer resolves each provider
+  /// against the render environment, waits for the decode to complete, and
+  /// keeps the decoded image alive until the capture finishes, so the
+  /// widget paints it in the single render pass. A provider that fails to
+  /// load fails the render with [MarkerImageLoadException].
+  ///
+  /// Use the same provider instances (or providers with equal cache keys)
+  /// as the widget itself, otherwise the widget's own lookup misses the
+  /// warmed image and captures blank.
+  final List<ImageProvider> imageDependencies;
 
   @override
   List<Object?> get props => [
     logicalSize,
     pixelRatio,
-    waitForImages,
     cacheKey,
-    initialImageDelay,
-    imageRepaintDelay,
+    imageDependencies,
   ];
+}
+
+/// Thrown when an image declared in
+/// [WidgetBitmapRenderOptions.imageDependencies] fails to load or decode.
+///
+/// The render fails loudly instead of capturing a marker with a missing
+/// image. Catch this to fall back to a placeholder icon.
+final class MarkerImageLoadException implements Exception {
+  /// Creates an exception describing why [provider] failed.
+  MarkerImageLoadException(this.provider, this.cause, this.stackTrace);
+
+  /// The image provider that failed to load.
+  final ImageProvider provider;
+
+  /// The underlying error reported by the image stream.
+  final Object cause;
+
+  /// The stack trace of the underlying error, when available.
+  final StackTrace? stackTrace;
+
+  @override
+  String toString() =>
+      'MarkerImageLoadException: image dependency $provider failed to '
+      'load: $cause';
 }
 
 /// A structured, collision-safe cache key for rendered marker icons.
@@ -465,8 +491,9 @@ class MarkerIconRenderer {
   /// Creates a renderer that turns widgets into marker icons.
   ///
   /// Throws [ArgumentError] when [defaultLogicalSize] is not positive and
-  /// finite, [maxCacheEntries] is not positive, [maxCacheBytes] is provided
-  /// but not positive, or either image delay is negative.
+  /// finite, [maxCacheEntries] is not positive, or [maxCacheBytes],
+  /// [maxConcurrentRenders], or [maxRasterPixels] is provided but not
+  /// positive.
   MarkerIconRenderer({
     this.defaultLogicalSize = const Size(96, 96),
     this.enableCaching = true,
@@ -474,8 +501,6 @@ class MarkerIconRenderer {
     this.maxCacheBytes = 50 * 1024 * 1024,
     this.maxConcurrentRenders = 3,
     this.maxRasterPixels = 4 * 1024 * 1024,
-    this.initialImageDelay = const Duration(milliseconds: 16),
-    this.imageRepaintDelay = const Duration(milliseconds: 200),
   }) {
     if (!_isPositiveFinite(defaultLogicalSize.width) ||
         !_isPositiveFinite(defaultLogicalSize.height)) {
@@ -511,20 +536,6 @@ class MarkerIconRenderer {
         maxRasterPixels,
         'maxRasterPixels',
         'must be > 0 when provided.',
-      );
-    }
-    if (initialImageDelay < Duration.zero) {
-      throw ArgumentError.value(
-        initialImageDelay,
-        'initialImageDelay',
-        'must not be negative.',
-      );
-    }
-    if (imageRepaintDelay < Duration.zero) {
-      throw ArgumentError.value(
-        imageRepaintDelay,
-        'imageRepaintDelay',
-        'must not be negative.',
       );
     }
   }
@@ -565,12 +576,6 @@ class MarkerIconRenderer {
   /// 2048 physical bitmap. Set to null to disable the check.
   final int? maxRasterPixels;
 
-  /// Delay before checking whether images might still be loading.
-  final Duration initialImageDelay;
-
-  /// Extra delay before repainting after images were detected.
-  final Duration imageRepaintDelay;
-
   /// Current number of cached entries.
   ///
   /// Each cached combination of cache key, logical size, and pixel ratio
@@ -598,7 +603,7 @@ class MarkerIconRenderer {
   /// cache key at a different size or pixel ratio always renders a fresh
   /// icon. Content inputs that change the rendered output (theme brightness,
   /// locale, selection state, ...) still belong in the cache key itself; see
-  /// [buildMarkerCacheKey].
+  /// [MarkerCacheKey].
   Future<MarkerIcon> render(
     Widget widget, {
     BuildContext? context,
@@ -659,17 +664,13 @@ class MarkerIconRenderer {
       }
     }
 
-    final Future<MarkerIcon> renderFuture = _withRenderSlot(
-      () => _doRender(
-        widget,
-        context: context,
-        view: view,
-        size: size,
-        dpr: dpr,
-        waitForImages: options.waitForImages,
-        initialImageDelay: options.initialImageDelay ?? initialImageDelay,
-        imageRepaintDelay: options.imageRepaintDelay ?? imageRepaintDelay,
-      ),
+    final Future<MarkerIcon> renderFuture = _renderWithImageDependencies(
+      widget,
+      context: context,
+      view: view,
+      size: size,
+      dpr: dpr,
+      imageDependencies: options.imageDependencies,
     );
 
     _PendingRender? pendingEntry;
@@ -774,15 +775,103 @@ class MarkerIconRenderer {
     }
   }
 
+  /// Resolves declared image dependencies, then renders inside the FIFO
+  /// concurrency gate.
+  ///
+  /// Resolution happens BEFORE a render slot is taken, so slow decodes
+  /// (network images) never starve the gate. The resolved image streams
+  /// stay retained until the capture completes, so the image cache cannot
+  /// evict a decoded dependency mid-render; the widget's own lookup then
+  /// receives the frame synchronously during the single paint pass.
+  Future<MarkerIcon> _renderWithImageDependencies(
+    Widget widget, {
+    required BuildContext? context,
+    required ui.FlutterView view,
+    required Size size,
+    required double dpr,
+    required List<ImageProvider> imageDependencies,
+  }) async {
+    final List<(ImageStream, ImageStreamListener)> retained =
+        <(ImageStream, ImageStreamListener)>[];
+    try {
+      if (imageDependencies.isNotEmpty) {
+        await _resolveImageDependencies(
+          imageDependencies,
+          _imageConfigurationFor(context: context, dpr: dpr),
+          retained,
+        );
+      }
+      return await _withRenderSlot(
+        () =>
+            _doRender(widget, context: context, view: view, size: size, dpr: dpr),
+      );
+    } finally {
+      for (final (ImageStream stream, ImageStreamListener listener)
+          in retained) {
+        stream.removeListener(listener);
+      }
+    }
+  }
+
+  /// Mirrors the environment [_wrapWidget] builds, so dependency resolution
+  /// and the widget's own image lookups produce the same cache keys.
+  ImageConfiguration _imageConfigurationFor({
+    required BuildContext? context,
+    required double dpr,
+  }) {
+    return ImageConfiguration(
+      bundle: context != null ? DefaultAssetBundle.of(context) : null,
+      devicePixelRatio: dpr,
+      locale: context != null ? Localizations.maybeLocaleOf(context) : null,
+      textDirection: context != null
+          ? (Directionality.maybeOf(context) ?? TextDirection.ltr)
+          : TextDirection.ltr,
+      platform: defaultTargetPlatform,
+    );
+  }
+
+  /// Starts a decode for every provider and completes when all of them have
+  /// delivered a frame. Streams and listeners are appended to [retained];
+  /// the caller removes the listeners after capture.
+  Future<void> _resolveImageDependencies(
+    List<ImageProvider> providers,
+    ImageConfiguration configuration,
+    List<(ImageStream, ImageStreamListener)> retained,
+  ) {
+    final List<Future<void>> decodes = <Future<void>>[];
+    for (final ImageProvider provider in providers) {
+      final Completer<void> decode = Completer<void>();
+      decodes.add(decode.future);
+
+      final ImageStream stream = provider.resolve(configuration);
+      final ImageStreamListener listener = ImageStreamListener(
+        (ImageInfo image, bool synchronousCall) {
+          image.dispose();
+          if (!decode.isCompleted) {
+            decode.complete();
+          }
+        },
+        onError: (Object error, StackTrace? stackTrace) {
+          if (!decode.isCompleted) {
+            decode.completeError(
+              MarkerImageLoadException(provider, error, stackTrace),
+              stackTrace,
+            );
+          }
+        },
+      );
+      stream.addListener(listener);
+      retained.add((stream, listener));
+    }
+    return Future.wait(decodes);
+  }
+
   Future<MarkerIcon> _doRender(
     Widget widget, {
     required BuildContext? context,
     required ui.FlutterView view,
     required Size size,
     required double dpr,
-    required bool waitForImages,
-    required Duration initialImageDelay,
-    required Duration imageRepaintDelay,
   }) async {
     final Widget wrapped = _wrapWidget(
       widget,
@@ -797,9 +886,6 @@ class MarkerIconRenderer {
       view: view,
       logicalSize: size,
       pixelRatio: dpr,
-      waitForImages: waitForImages,
-      initialImageDelay: initialImageDelay,
-      imageRepaintDelay: imageRepaintDelay,
     );
 
     return MarkerIcon(bytes: bytes, logicalSize: size, pixelRatio: dpr);
@@ -900,9 +986,6 @@ class MarkerIconRenderer {
     required ui.FlutterView view,
     required Size logicalSize,
     required double pixelRatio,
-    required bool waitForImages,
-    required Duration initialImageDelay,
-    required Duration imageRepaintDelay,
   }) async {
     final RenderRepaintBoundary repaintBoundary = RenderRepaintBoundary();
     final PipelineOwner pipelineOwner = PipelineOwner();
@@ -937,20 +1020,6 @@ class MarkerIconRenderer {
       pipelineOwner.flushLayout();
       pipelineOwner.flushCompositingBits();
       pipelineOwner.flushPaint();
-
-      if (waitForImages) {
-        await Future<void>.delayed(initialImageDelay);
-
-        if (_hasImagesBelow(repaintBoundary)) {
-          await Future<void>.delayed(imageRepaintDelay);
-
-          buildOwner.buildScope(rootElement);
-          pipelineOwner
-            ..flushLayout()
-            ..flushCompositingBits()
-            ..flushPaint();
-        }
-      }
 
       final ui.Image image = await repaintBoundary.toImage(
         pixelRatio: pixelRatio,
@@ -1017,34 +1086,6 @@ class MarkerIconRenderer {
         }
       }
     }
-  }
-
-  bool _hasImagesBelow(RenderObject root) {
-    var found = false;
-
-    void visitor(RenderObject child) {
-      if (found) {
-        return;
-      }
-
-      if (child is RenderImage && child.image == null) {
-        found = true;
-        return;
-      }
-
-      if (child is RenderDecoratedBox) {
-        final Decoration decoration = child.decoration;
-        if (decoration is BoxDecoration && decoration.image != null) {
-          found = true;
-          return;
-        }
-      }
-
-      child.visitChildren(visitor);
-    }
-
-    root.visitChildren(visitor);
-    return found;
   }
 
   void _bump(_ResolvedCacheKey key) {

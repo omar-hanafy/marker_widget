@@ -134,13 +134,77 @@ class _LifecycleProbeState extends State<_LifecycleProbe> {
       const ColoredBox(color: Color(0xFF00FF00));
 }
 
-Widget _slowColorBox(Color color, Uint8List pngBytes) {
-  return DecoratedBox(
-    decoration: BoxDecoration(
-      image: DecorationImage(image: MemoryImage(pngBytes)),
-    ),
-    child: ColoredBox(color: color),
+/// An image provider whose decode completes only when [gate] is completed,
+/// so tests control exactly when an image dependency becomes ready.
+class _GatedImageProvider extends ImageProvider<_GatedImageProvider> {
+  _GatedImageProvider(this.gate);
+
+  final Completer<ui.Image> gate;
+
+  @override
+  Future<_GatedImageProvider> obtainKey(ImageConfiguration configuration) =>
+      SynchronousFuture<_GatedImageProvider>(this);
+
+  @override
+  ImageStreamCompleter loadImage(
+    _GatedImageProvider key,
+    ImageDecoderCallback decode,
+  ) {
+    return OneFrameImageStreamCompleter(
+      gate.future.then((ui.Image image) => ImageInfo(image: image)),
+    );
+  }
+}
+
+class _FailingImageProvider extends ImageProvider<_FailingImageProvider> {
+  const _FailingImageProvider();
+
+  @override
+  Future<_FailingImageProvider> obtainKey(ImageConfiguration configuration) =>
+      SynchronousFuture<_FailingImageProvider>(this);
+
+  @override
+  ImageStreamCompleter loadImage(
+    _FailingImageProvider key,
+    ImageDecoderCallback decode,
+  ) {
+    return OneFrameImageStreamCompleter(
+      Future<ImageInfo>.error(StateError('decode failed')),
+    );
+  }
+}
+
+Future<ui.Image> _solidImage(Color color, {int size = 8}) async {
+  final ui.PictureRecorder recorder = ui.PictureRecorder();
+  final Canvas canvas = Canvas(recorder);
+  canvas.drawRect(
+    Rect.fromLTWH(0, 0, size.toDouble(), size.toDouble()),
+    Paint()..color = color,
   );
+  final ui.Picture picture = recorder.endRecording();
+  try {
+    return await picture.toImage(size, size);
+  } finally {
+    picture.dispose();
+  }
+}
+
+Future<Color> _centerPixel(Uint8List pngBytes) async {
+  final ui.Image decoded = await decodeImageFromList(pngBytes);
+  try {
+    final ByteData? data = await decoded.toByteData();
+    final int x = decoded.width ~/ 2;
+    final int y = decoded.height ~/ 2;
+    final int offset = (y * decoded.width + x) * 4;
+    return Color.fromARGB(
+      data!.getUint8(offset + 3),
+      data.getUint8(offset),
+      data.getUint8(offset + 1),
+      data.getUint8(offset + 2),
+    );
+  } finally {
+    decoded.dispose();
+  }
 }
 
 void main() {
@@ -615,18 +679,6 @@ void main() {
         throwsA(isA<ArgumentError>()),
       );
       expect(
-        () => MarkerIconRenderer(
-          initialImageDelay: const Duration(milliseconds: -1),
-        ),
-        throwsA(isA<ArgumentError>()),
-      );
-      expect(
-        () => MarkerIconRenderer(
-          imageRepaintDelay: const Duration(milliseconds: -1),
-        ),
-        throwsA(isA<ArgumentError>()),
-      );
-      expect(
         () =>
             MarkerIconRenderer(defaultLogicalSize: const Size(double.nan, 96)),
         throwsA(isA<ArgumentError>()),
@@ -1091,21 +1143,21 @@ void main() {
         const MaterialApp(home: Scaffold(body: SizedBox.shrink())),
       );
 
-      final renderer = MarkerIconRenderer(
-        initialImageDelay: const Duration(milliseconds: 50),
-        imageRepaintDelay: const Duration(milliseconds: 50),
-      );
+      final renderer = MarkerIconRenderer();
       final context = tester.element(find.byType(Scaffold));
 
       final (MarkerIcon slowIcon, MarkerIcon fastIcon) = (await tester.runAsync(
         () async {
+          final gate = Completer<ui.Image>();
+          final gatedProvider = _GatedImageProvider(gate);
+
           final Future<MarkerIcon> slowFuture = renderer.render(
-            _slowColorBox(Colors.red, _onePixelPng()),
+            Image(image: gatedProvider),
             context: context,
-            options: const WidgetBitmapRenderOptions(
-              logicalSize: Size(24, 24),
+            options: WidgetBitmapRenderOptions(
+              logicalSize: const Size(24, 24),
               cacheKey: 'stale-clear',
-              waitForImages: true,
+              imageDependencies: [gatedProvider],
             ),
           );
 
@@ -1121,6 +1173,7 @@ void main() {
           );
 
           final MarkerIcon fastIcon = await fastFuture;
+          gate.complete(await _solidImage(const Color(0xFFFF0000)));
           final MarkerIcon slowIcon = await slowFuture;
           return (slowIcon, fastIcon);
         },
@@ -1138,21 +1191,21 @@ void main() {
         const MaterialApp(home: Scaffold(body: SizedBox.shrink())),
       );
 
-      final renderer = MarkerIconRenderer(
-        initialImageDelay: const Duration(milliseconds: 50),
-        imageRepaintDelay: const Duration(milliseconds: 50),
-      );
+      final renderer = MarkerIconRenderer();
       final context = tester.element(find.byType(Scaffold));
 
       final (MarkerIcon slowIcon, MarkerIcon fastIcon) = (await tester.runAsync(
         () async {
+          final gate = Completer<ui.Image>();
+          final gatedProvider = _GatedImageProvider(gate);
+
           final Future<MarkerIcon> slowFuture = renderer.render(
-            _slowColorBox(Colors.red, _onePixelPng()),
+            Image(image: gatedProvider),
             context: context,
-            options: const WidgetBitmapRenderOptions(
-              logicalSize: Size(24, 24),
+            options: WidgetBitmapRenderOptions(
+              logicalSize: const Size(24, 24),
               cacheKey: 'stale-remove',
-              waitForImages: true,
+              imageDependencies: [gatedProvider],
             ),
           );
 
@@ -1168,6 +1221,7 @@ void main() {
           );
 
           final MarkerIcon fastIcon = await fastFuture;
+          gate.complete(await _solidImage(const Color(0xFFFF0000)));
           final MarkerIcon slowIcon = await slowFuture;
           return (slowIcon, fastIcon);
         },
@@ -1673,6 +1727,129 @@ void main() {
         'MarkerCacheKey.cluster(12, brightness: null, locale: null, '
         'extra: null)',
       );
+    });
+  });
+
+  group('Image dependencies', () {
+    testWidgets('waits for declared image dependencies before capture', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(home: Scaffold(body: SizedBox.shrink())),
+      );
+
+      final renderer = MarkerIconRenderer(enableCaching: false);
+      final context = tester.element(find.byType(Scaffold));
+
+      final icon = await tester.runAsync(() async {
+        // Created inside runAsync: the completer's future must live in the
+        // real async zone, or its completion stalls in the fake-async queue.
+        final gate = Completer<ui.Image>();
+        final provider = _GatedImageProvider(gate);
+
+        final Future<MarkerIcon> render = renderer.render(
+          Image(image: provider, fit: BoxFit.fill),
+          context: context,
+          options: WidgetBitmapRenderOptions(
+            logicalSize: const Size(16, 16),
+            pixelRatio: 1.0,
+            imageDependencies: [provider],
+          ),
+        );
+
+        var completed = false;
+        unawaited(render.whenComplete(() => completed = true));
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        expect(
+          completed,
+          isFalse,
+          reason: 'render must wait for the gated image decode',
+        );
+
+        gate.complete(await _solidImage(const Color(0xFFFF0000)));
+        return render;
+      });
+
+      final pixel = await tester.runAsync(() => _centerPixel(icon!.bytes));
+      expect(pixel, const Color(0xFFFF0000));
+    });
+
+    testWidgets('renders image-backed decorations deterministically', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(home: Scaffold(body: SizedBox.shrink())),
+      );
+
+      final renderer = MarkerIconRenderer(enableCaching: false);
+      final context = tester.element(find.byType(Scaffold));
+
+      final icon = await tester.runAsync(() async {
+        final ui.Image source = await _solidImage(const Color(0xFF00FF00));
+        final ByteData png = (await source.toByteData(
+          format: ui.ImageByteFormat.png,
+        ))!;
+        source.dispose();
+        final provider = MemoryImage(Uint8List.sublistView(png));
+
+        return renderer.render(
+          DecoratedBox(
+            decoration: BoxDecoration(
+              image: DecorationImage(image: provider, fit: BoxFit.fill),
+            ),
+          ),
+          context: context,
+          options: WidgetBitmapRenderOptions(
+            logicalSize: const Size(16, 16),
+            pixelRatio: 1.0,
+            imageDependencies: [provider],
+          ),
+        );
+      });
+
+      final pixel = await tester.runAsync(() => _centerPixel(icon!.bytes));
+      expect(pixel, const Color(0xFF00FF00));
+    });
+
+    testWidgets('throws MarkerImageLoadException when a dependency fails', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(home: Scaffold(body: SizedBox.shrink())),
+      );
+
+      final renderer = MarkerIconRenderer(enableCaching: false);
+      final context = tester.element(find.byType(Scaffold));
+
+      await tester.runAsync(() async {
+        await expectLater(
+          renderer.render(
+            const SizedBox(),
+            context: context,
+            options: const WidgetBitmapRenderOptions(
+              logicalSize: Size(16, 16),
+              pixelRatio: 1.0,
+              imageDependencies: [_FailingImageProvider()],
+            ),
+          ),
+          throwsA(
+            isA<MarkerImageLoadException>()
+                .having(
+                  (e) => e.provider,
+                  'provider',
+                  isA<_FailingImageProvider>(),
+                )
+                .having(
+                  (e) => e.toString(),
+                  'toString',
+                  allOf(
+                    contains('_FailingImageProvider'),
+                    contains('decode failed'),
+                  ),
+                ),
+          ),
+        );
+      });
     });
   });
 
