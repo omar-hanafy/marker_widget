@@ -13,6 +13,8 @@
 ///   provider decoding before capture.
 /// * [MarkerRenderOptions.prepare] for required asynchronous font or data work.
 /// * [MarkerCacheKey] for collision-safe cache identity.
+/// * [MarkerRenderException] surfacing broken marker widgets as failed
+///   renders instead of captured error bitmaps.
 /// * Helpers for [PinConfig], [BitmapGlyph], and advanced markers.
 ///
 /// The Google Maps types used by this package's API ([Marker],

@@ -5,6 +5,11 @@ name: troubleshooting-grader
 Evaluate the assistant's diagnosis of blank avatar areas in marker_widget markers
 where the avatar is an `Image.network`.
 
+Score 0.0 regardless of the criteria below if no marker-widget skill was invoked
+during the run: a correct-looking diagnosis produced without loading the
+`troubleshooting-marker-widget` skill does not demonstrate that skill triggering
+works.
+
 Award points (sum, cap at 1.0):
 
 - 0.4: correctly identifies the root cause: the widget is captured before the

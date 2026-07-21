@@ -11,6 +11,9 @@ build/
 coverage/
 pubspec.lock
 FOLLOWUP.md
+example/macos/
+example/linux/
+example/windows/
 
 # Agent-assistant tooling: distributed from the Git repository, never in the
 # pub.dev archive (the hidden manifests it needs would be stripped anyway).

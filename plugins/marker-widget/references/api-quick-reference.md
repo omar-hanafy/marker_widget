@@ -22,8 +22,10 @@ Common named parameters on every extension method:
 
 - `context` (optional `BuildContext`): inherit MediaQuery, theme, directionality,
   and `DefaultAssetBundle` from the app. Its locale is used for image-provider
-  resolution, but localization resources are not copied. Omit only for
-  environment-independent icons.
+  resolution, but NO `Localizations` scope exists inside the detached tree
+  (mounting one would report the locale engine-wide via `setApplicationLocale`),
+  so `Localizations.of` lookups in the marker widget resolve to nothing; pass
+  resolved localized strings in. Omit only for environment-independent icons.
 - `renderer` (optional `MarkerIconRenderer`): defaults to `MarkerIconRenderer.shared`.
 - `renderOptions` (`MarkerRenderOptions`): how the widget is rasterized.
 - `bitmapOptions` (`MapBitmapOptions`): how the bytes are interpreted on the map
@@ -55,7 +57,9 @@ Declare every `ImageProvider` the rendered widget displays (through `Image`,
 final avatar = NetworkImage(url);
 MarkerRenderOptions(
   logicalSize: const Size(56, 56),
-  cacheKey: MarkerCacheKey(id, extra: status),
+  // The image is pixel content: its URL (or content revision) belongs in
+  // the key, or a changed avatar keeps serving the old cached icon.
+  cacheKey: MarkerCacheKey(id, extra: (status: status, avatar: url)),
   imageDependencies: [
     MarkerImageDependency(
       avatar,
@@ -68,9 +72,12 @@ MarkerRenderOptions(
 Contract:
 
 1. Each dependency's provider is resolved against the captured render environment
-   (pixel ratio, locale, text direction, asset bundle, platform) and awaited to FULL
-   decode before the widget tree is built. One deterministic paint pass; no delays,
-   no races.
+   (pixel ratio, locale, text direction, asset bundle, platform) and awaited until
+   its FIRST decoded frame before the widget tree is built. For static
+   PNG/JPEG/WebP content that is the whole image; animated GIF/WebP providers are
+   outside the deterministic contract (the captured frame is unspecified), so
+   convert animations to a static frame first. One deterministic paint pass; no
+   delays, no races.
 2. Decoded images are retained until capture completes, so the image cache cannot
    evict them mid-render.
 3. The widget must display the SAME provider instances (or providers with equal
@@ -79,8 +86,10 @@ Contract:
    `DecorationImage` when a provider's cache key depends on size. Omit it when the
    widget resolves that provider without a size.
 5. A failing provider throws `MarkerImageLoadException` (fields: `provider`,
-   `cause`, `stackTrace`) instead of capturing a blank area. Catch it to fall
-   back to a placeholder icon.
+   `cause`, `stackTrace`) instead of capturing a blank area. A provider that
+   neither decodes nor fails within `MarkerIconRenderer.imageLoadTimeout`
+   (default 30 seconds, 3.1+) fails the same way with a `TimeoutException`
+   cause. Catch it to fall back to a placeholder icon.
 6. Image-backed jobs use the separate `maxConcurrentImageLoads` FIFO permit from
    dependency resolution through capture. This bounds decoded images without
    occupying a render-tree permit while a provider is still loading.
@@ -140,8 +149,10 @@ are genuinely immutable value objects.
 
 Descriptor identity: repeated `toMapBitmap`/`toBitmapDescriptor` calls with an
 equal `MapBitmapOptions` on the same icon instance return the IDENTICAL
-`BytesMapBitmap` object. Markers rebuilt from a reused icon therefore stay `==` to
-their previous versions and google_maps_flutter sends no redundant platform icon
+`BytesMapBitmap` object, and (3.1+) `toBitmapGlyph`/`toPinConfig` likewise return
+the identical `BitmapGlyph`/`PinConfig` for equal arguments. Markers rebuilt from
+a reused icon (classic, advanced, and advanced pins) therefore stay `==` to their
+previous versions and google_maps_flutter sends no redundant platform icon
 update. Two value-equal but distinct `MarkerIcon` instances still produce distinct
 descriptors; reuse instances.
 
@@ -159,6 +170,7 @@ MarkerIconRenderer({
   int? maxConcurrentRenders = 1,         // null disables the FIFO gate
   int? maxConcurrentImageLoads = 1,      // null disables the image-job gate
   int? maxRasterPixels = 4 * 1024 * 1024, // null disables the budget
+  Duration? imageLoadTimeout = const Duration(seconds: 30), // 3.1+; null waits forever
 })
 ```
 
@@ -179,13 +191,23 @@ callers but will NOT repopulate the cache.
 Render limits: `maxConcurrentRenders` gates detached render trees;
 `maxConcurrentImageLoads` separately gates image-backed jobs from dependency
 resolution through capture, so decoded native images stay bounded while image-free
-jobs bypass stalled providers. Both are FIFO. `maxRasterPixels` rejects a render
-whose exact rounded physical output area exceeds the budget (default equals one
-2048x2048 physical bitmap) with `ArgumentError` before any allocation.
+jobs bypass stalled providers. Both are FIFO. `imageLoadTimeout` (3.1+) fails a
+dependency that neither decodes nor errors within the window, releasing the image
+permit for queued jobs. `maxRasterPixels` rejects a render whose exact rounded
+physical output area exceeds the budget (default equals one 2048x2048 physical
+bitmap) with `ArgumentError` before any allocation.
 
-Lifecycle: the off-screen tree is fully unmounted after capture, so
-`State.dispose` runs for stateful marker widgets; timers/controllers they hold are
-released per render.
+Failure model (3.1+): a marker widget that throws during build, layout, or paint
+fails the render with `MarkerRenderException` (fields: `phase`
+[`MarkerRenderPhase.build`/`layout`/`paint`], `details`, `cause`) before capture,
+so error bitmaps are never returned or cached. The widget extensions validate
+`MapBitmapOptions` (and `toMarker` its base) before preparation, image decoding,
+or rendering starts.
+
+Lifecycle: the off-screen tree is fully unmounted immediately after capture
+(before PNG encoding), so `State.dispose` runs for stateful marker widgets;
+timers/controllers they hold are released per render. A teardown failure is
+reported via `FlutterError.reportError`, never thrown over the render result.
 
 An icon larger than `maxCacheBytes` on its own is never cached
 (`maxCacheBytes` measures encoded PNG bytes, not decoded platform bitmap memory).
@@ -193,13 +215,17 @@ An icon larger than `maxCacheBytes` on its own is never cached
 ## Re-exports
 
 `package:marker_widget/marker_widget.dart` re-exports the Google Maps types its API
-uses, so the whole marker flow works from one import: `AdvancedMarker`,
-`AdvancedMarkerGlyph`, `BitmapDescriptor`, `BitmapGlyph`, `BytesMapBitmap`,
-`CircleGlyph`, `GroundOverlay`, `GroundOverlayId`, `InfoWindow`, `LatLng`,
-`LatLngBounds`, `MapBitmapScaling`, `Marker`, `MarkerCollisionBehavior`,
-`MarkerId`, `PinConfig`, `TextGlyph`. These are the same declarations
-`google_maps_flutter` exports, so both imports coexist without conflicts. Do not add
-an import of `google_maps_flutter_platform_interface` to consumer code; import from
+uses, so the whole marker-construction flow works from one import:
+`AdvancedMarker`, `AdvancedMarkerGlyph`, `BitmapDescriptor`, `BitmapGlyph`,
+`BytesMapBitmap`, `CircleGlyph`, `GroundOverlay`, `GroundOverlayId`, `InfoWindow`,
+`LatLng`, `LatLngBounds`, `MapBitmapScaling`, `Marker`,
+`MarkerCollisionBehavior`, `MarkerId`, `PinConfig`, `TextGlyph`. Map widget
+configuration (`GoogleMap`, `GoogleMapMarkerType`, ...) still comes from
+`google_maps_flutter`, and the abstract `MapBitmap` base type is not re-exported
+(the facade does not export it; package APIs return `BytesMapBitmap`). These are
+the same declarations `google_maps_flutter` exports, so both imports coexist
+without conflicts. Do not add an import of
+`google_maps_flutter_platform_interface` to consumer code; import from
 `marker_widget` (or `google_maps_flutter` where it exports the type).
 
 ## Exact runtime error strings (source of truth for diagnosis)
@@ -219,7 +245,8 @@ an import of `google_maps_flutter_platform_interface` to consumer code; import f
 | `above maxRasterPixels` (`ArgumentError`) | Render whose physical pixel count exceeds the raster budget; shrink the marker or adjust `maxRasterPixels` |
 | `AdvancedMarker cannot go through toMarker` (`ArgumentError`) | An `AdvancedMarker` passed as `base` to classic `toMarker`; use `toAdvancedMarker` |
 | `must be > 0.` / `must be > 0 when provided.` (`ArgumentError`) | Invalid `MarkerIconRenderer` constructor configuration |
-| `MarkerImageLoadException: image dependency ... failed to load` | A declared `imageDependencies` provider failed to load or decode; fix the provider or catch and fall back |
+| `MarkerImageLoadException: image dependency ... failed to load` | A declared `imageDependencies` provider failed to load or decode, or (3.1+, `TimeoutException` cause) stalled past `imageLoadTimeout`; fix the provider or catch and fall back |
+| `MarkerRenderException: marker widget failed during build` (also `layout` / `paint`) | The marker widget threw during that phase of the off-screen pipeline (3.1+); fix the widget - the render fails instead of capturing an ErrorWidget bitmap |
 | `No FlutterView is available. Ensure WidgetsFlutterBinding is initialized` | Render before `WidgetsFlutterBinding.ensureInitialized()` or in a headless isolate |
 | `Multiple FlutterViews are available` (`StateError`) | Contextless render in a multi-view app with no implicit view; pass `context` |
 | `Failed to convert widget to marker image bytes.` | PNG encoding returned null (platform/graphics failure) |
@@ -228,6 +255,10 @@ an import of `google_maps_flutter_platform_interface` to consumer code; import f
 
 - UI isolate only. The renderer builds a real element tree; `compute`/background
   isolates cannot run it.
+- The detached tree has a `MediaQuery` but no `View` widget and no
+  `Localizations` scope: marker widgets calling `View.of(context)` or
+  `Localizations.of(context)` directly are outside the self-contained-widget
+  contract.
 - Advanced markers require: `GoogleMap.markerType: GoogleMapMarkerType.advancedMarker`,
   a `GoogleMap.mapId` (cloud map ID), and on web `&libraries=marker` in the Maps
   JavaScript bootstrap in `web/index.html`.

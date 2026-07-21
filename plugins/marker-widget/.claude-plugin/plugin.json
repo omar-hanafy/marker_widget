@@ -1,8 +1,8 @@
 {
   "name": "marker-widget",
   "displayName": "marker_widget Assistant",
-  "version": "3.0.0",
-  "description": "Package-specific skills and a read-only reviewer agent for marker_widget 3.x: correct integration and sizing, cache and performance tuning, and symptom-based troubleshooting.",
+  "version": "3.1.0",
+  "description": "Package-specific skills and a read-only reviewer agent for marker_widget 3.x: correct integration and sizing, cache and performance tuning, symptom-based troubleshooting, and codebase review.",
   "author": {
     "name": "Omar Khaled Hanafy",
     "url": "https://github.com/omar-hanafy"

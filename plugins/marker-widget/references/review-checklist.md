@@ -4,10 +4,11 @@ Audit checklist for code that uses marker_widget. Each item: what to search for,
 is a problem, and the fix. Severity guide: HIGH = user-visible bug or memory risk,
 MEDIUM = performance or correctness under specific conditions, LOW = style/robustness.
 
-Find usage sites first:
+Find usage sites first (include tests: item 12 lives in `test/` and
+`integration_test/`, not `lib/`):
 
 ```
-grep -rn "toBitmapDescriptor\|toMapBitmap\|toMarkerIcon\|toMarker(\|toAdvancedMarker\|toAdvancedPinMarker\|toPinConfig\|toBitmapGlyph\|toGroundOverlayBitmap\|MarkerIconRenderer\|MarkerCacheKey\|MarkerImageDependency\|imageDependencies\|prepare" lib/
+grep -rn "toBitmapDescriptor\|toMapBitmap\|toMarkerIcon\|toMarker(\|toAdvancedMarker\|toAdvancedPinMarker\|toPinConfig\|toBitmapGlyph\|toGroundOverlayBitmap\|MarkerIconRenderer\|MarkerCacheKey\|MarkerImageDependency\|imageDependencies\|prepare" lib/ test/ integration_test/
 ```
 
 ## 1. Renders without a cacheKey on a hot path (HIGH)
@@ -24,15 +25,21 @@ state and convert synchronously.
 
 Search: `cacheKey:` values that are plain ids or string literals; `MarkerCacheKey`
 without `brightness`/`locale` in apps that support dark mode or localization;
-selection/status rendered in the widget but absent from the key (`extra:`); `extra:`
-holding a `List`, `Map`, or custom object without `==`.
+selection/status rendered in the widget but absent from the key (`extra:`); a
+declared image dependency whose URL/provider identity is absent from the key;
+`extra:` holding a `List`, `Map`, or custom object without `==`.
 Why: the first rendered variant sticks; theme toggles, locale switches, or selection
-changes show stale icons. A fresh identity-compared `extra` misses every time, while
+changes show stale icons. The cache lookup happens BEFORE image dependencies are
+resolved, so when an image provider's URL or underlying content can change without
+the key changing (same user id, new avatar), the old icon is served and the new
+image is never resolved. A fresh identity-compared `extra` misses every time, while
 mutating and reusing the same collection can return stale output. The renderer adds
 resolved size and DPR to cache identity itself; those never belong in the key.
-Fix: include every content input that changes pixels: id, brightness, locale,
-`extra` for state (selected, count, avatar revision), using records or other
-value-equal types for `extra`.
+Fix: include every content input that changes pixels: id, brightness, locale, and
+`extra` for state (selected, count) plus the image URL/version/ETag-derived
+revision of every mutable image, plus custom theme colors, text scaling, bold-text
+accessibility, directionality, or prepared-data revisions when the widget renders
+them. Use records or other value-equal types for `extra`.
 
 ## 3. Images displayed but not declared as dependencies (HIGH)
 
@@ -45,11 +52,15 @@ image is still decoding at capture time and paints blank. Declared providers are
 decoded before capture and retained until it completes, which is the supported path.
 Fix: declare `MarkerImageDependency(provider)` entries in
 `renderOptions.imageDependencies`. For size-sensitive providers, set
-`configurationSize` to the exact image layout size. Check the failure path too: a
-dead URL throws `MarkerImageLoadException`; hot paths should catch it and fall back
-to a placeholder icon. Flag any widget relying on animations, `FutureBuilder`, or
-post-frame state: the renderer captures a single frame. Use `prepare` for required
-font or data futures.
+`configurationSize` to the exact image layout size. When the provider's content can
+change (mutable avatar URL, updated remote asset), its URL or content revision must
+also appear in the cache key (item 2). Check the failure path too: a dead URL
+throws `MarkerImageLoadException` (as does a provider stalled past the renderer's
+`imageLoadTimeout`); hot paths should catch it and fall back to a placeholder icon.
+Flag any widget relying on animations, animated GIF/WebP providers,
+`FutureBuilder`, or post-frame state: the renderer captures a single frame and
+image readiness means the first decoded frame. Use `prepare` for required font or
+data futures.
 
 ## 4. Context omitted where the widget depends on it (MEDIUM)
 
@@ -126,15 +137,21 @@ Fix: render one `MarkerIcon`, reuse via `icon.toMarker(base: ...)` per position
 
 ## 12. Tests that hang or assert on renders (MEDIUM)
 
-Search: `testWidgets` bodies calling any `to*` method directly.
+Search: `testWidgets` bodies whose `to*` / `render` calls proceed to an actual
+capture outside `tester.runAsync`.
 Why: `flutter_test` runs fake async; `RepaintBoundary.toImage` and PNG encoding never
 complete without a real event loop, so the test times out.
 Fix: wrap the render in `await tester.runAsync(() => ...)` (the package's own test
-suite does exactly this), and pump a widget first to obtain a valid context.
+suite does exactly this), and pump a widget first to obtain a valid context. Calls
+that fail argument validation before rendering (invalid `MapBitmapOptions`, an
+`AdvancedMarker` base passed to `toMarker`) complete without a real event loop, so
+validation-only tests do not need `runAsync`; do not flag those.
 
 ## Output contract for reviews
 
-For each finding report: file:line, checklist item number, severity, one-line problem
-statement, and the concrete fix (with a short code snippet when the fix is not
-obvious). End with a summary table sorted by severity, and list which checklist items
-were checked and found clean.
+Use the four-section report defined by the `reviewing-marker-widget` skill, in this
+order and with no preamble: `## Summary` (one paragraph: number of call sites,
+overall health, single most important fix), `## Findings` (one entry per finding:
+file:line, checklist item number, severity, one-line problem, concrete fix, ordered
+by severity then file), `## Clean` (items verified with no findings), and
+`## Not assessed` (what could not be verified and why).
