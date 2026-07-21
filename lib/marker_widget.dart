@@ -9,15 +9,30 @@
 /// * [MarkerIconRenderer] for advanced control and caching.
 /// * [MapBitmapOptions] and [WidgetBitmapRenderOptions] for explicit sizing.
 /// * Helpers for [PinConfig], [BitmapGlyph], and advanced markers.
+///
+/// The Google Maps types used by this package's API ([Marker],
+/// [BitmapDescriptor], [BytesMapBitmap], [GroundOverlay], ...) are
+/// re-exported, so markers can be built without a second import.
 library;
 
 export 'package:google_maps_flutter_platform_interface/google_maps_flutter_platform_interface.dart'
     show
         AdvancedMarker,
         AdvancedMarkerGlyph,
+        BitmapDescriptor,
         BitmapGlyph,
+        BytesMapBitmap,
         CircleGlyph,
+        GroundOverlay,
+        GroundOverlayId,
+        InfoWindow,
+        LatLng,
+        LatLngBounds,
+        MapBitmap,
+        MapBitmapScaling,
+        Marker,
         MarkerCollisionBehavior,
+        MarkerId,
         PinConfig,
         TextGlyph;
 export 'src/marker_widget.dart';
