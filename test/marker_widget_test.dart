@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -102,6 +104,34 @@ class _TestAssetBundle extends CachingAssetBundle {
 
   @override
   Future<ByteData> load(String key) async => ByteData(0);
+}
+
+class _LifecycleProbe extends StatefulWidget {
+  const _LifecycleProbe({this.onInit, this.onDispose});
+
+  final VoidCallback? onInit;
+  final VoidCallback? onDispose;
+
+  @override
+  State<_LifecycleProbe> createState() => _LifecycleProbeState();
+}
+
+class _LifecycleProbeState extends State<_LifecycleProbe> {
+  @override
+  void initState() {
+    super.initState();
+    widget.onInit?.call();
+  }
+
+  @override
+  void dispose() {
+    widget.onDispose?.call();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      const ColoredBox(color: Color(0xFF00FF00));
 }
 
 Widget _slowColorBox(Color color, Uint8List pngBytes) {
@@ -1129,6 +1159,87 @@ void main() {
       expect(key1, isNot(key2));
       expect(key1, contains('count=12'));
       expect(key1, contains('extra=a'));
+    });
+  });
+
+  group('Render lifecycle', () {
+    testWidgets('runs State.dispose after rendering a stateful widget', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(home: Scaffold(body: SizedBox.shrink())),
+      );
+
+      final renderer = MarkerIconRenderer(enableCaching: false);
+      final context = tester.element(find.byType(Scaffold));
+
+      var initCount = 0;
+      var disposeCount = 0;
+
+      final icon = await tester.runAsync(
+        () => renderer.render(
+          _LifecycleProbe(
+            onInit: () => initCount++,
+            onDispose: () => disposeCount++,
+          ),
+          context: context,
+          options: const WidgetBitmapRenderOptions(
+            logicalSize: Size(20, 20),
+            pixelRatio: 1.0,
+          ),
+        ),
+      );
+
+      expect(icon, isNotNull);
+      expect(initCount, 1);
+      expect(disposeCount, 1);
+    });
+
+    testWidgets('disposed stateful widgets stop their periodic timers', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(home: Scaffold(body: SizedBox.shrink())),
+      );
+
+      final renderer = MarkerIconRenderer(enableCaching: false);
+      final context = tester.element(find.byType(Scaffold));
+
+      var ticks = 0;
+      Timer? timer;
+
+      try {
+        await tester.runAsync(() async {
+          final icon = await renderer.render(
+            _LifecycleProbe(
+              onInit: () {
+                timer = Timer.periodic(
+                  const Duration(milliseconds: 5),
+                  (_) => ticks++,
+                );
+              },
+              onDispose: () => timer?.cancel(),
+            ),
+            context: context,
+            options: const WidgetBitmapRenderOptions(
+              logicalSize: Size(20, 20),
+              pixelRatio: 1.0,
+            ),
+          );
+          expect(icon.bytes, isNotEmpty);
+
+          final ticksAfterRender = ticks;
+          await Future<void>.delayed(const Duration(milliseconds: 60));
+          expect(
+            ticks,
+            ticksAfterRender,
+            reason:
+                'State.dispose must cancel the timer before render() returns',
+          );
+        });
+      } finally {
+        timer?.cancel();
+      }
     });
   });
 

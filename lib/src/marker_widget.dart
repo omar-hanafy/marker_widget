@@ -592,33 +592,34 @@ class MarkerIconRenderer {
     required Duration imageRepaintDelay,
   }) async {
     final RenderRepaintBoundary repaintBoundary = RenderRepaintBoundary();
-
-    final ViewConfiguration configuration = ViewConfiguration(
-      logicalConstraints: BoxConstraints.tight(logicalSize),
-      physicalConstraints: BoxConstraints.tight(logicalSize * pixelRatio),
-      devicePixelRatio: pixelRatio,
-    );
-
-    final RenderView renderView = RenderView(
-      view: view,
-      configuration: configuration,
-      child: repaintBoundary,
-    );
-
     final PipelineOwner pipelineOwner = PipelineOwner();
     final FocusManager focusManager = FocusManager();
     final BuildOwner buildOwner = BuildOwner(focusManager: focusManager);
 
-    pipelineOwner.rootNode = renderView;
-    renderView.prepareInitialFrame();
-
-    final RenderObjectToWidgetElement<RenderBox> rootElement =
-        RenderObjectToWidgetAdapter<RenderBox>(
-          container: repaintBoundary,
-          child: widget,
-        ).attachToRenderTree(buildOwner);
+    RenderView? renderView;
+    RenderObjectToWidgetElement<RenderBox>? rootElement;
 
     try {
+      final ViewConfiguration configuration = ViewConfiguration(
+        logicalConstraints: BoxConstraints.tight(logicalSize),
+        physicalConstraints: BoxConstraints.tight(logicalSize * pixelRatio),
+        devicePixelRatio: pixelRatio,
+      );
+
+      renderView = RenderView(
+        view: view,
+        configuration: configuration,
+        child: repaintBoundary,
+      );
+
+      pipelineOwner.rootNode = renderView;
+      renderView.prepareInitialFrame();
+
+      rootElement = RenderObjectToWidgetAdapter<RenderBox>(
+        container: repaintBoundary,
+        child: widget,
+      ).attachToRenderTree(buildOwner);
+
       buildOwner.buildScope(rootElement);
       pipelineOwner.flushLayout();
       pipelineOwner.flushCompositingBits();
@@ -641,23 +642,67 @@ class MarkerIconRenderer {
       final ui.Image image = await repaintBoundary.toImage(
         pixelRatio: pixelRatio,
       );
-      final ByteData? byteData = await image.toByteData(
-        format: ui.ImageByteFormat.png,
-      );
 
-      image.dispose();
+      try {
+        final ByteData? byteData = await image.toByteData(
+          format: ui.ImageByteFormat.png,
+        );
 
-      if (byteData == null) {
-        throw StateError('Failed to convert widget to marker image bytes.');
+        if (byteData == null) {
+          throw StateError('Failed to convert widget to marker image bytes.');
+        }
+
+        return Uint8List.sublistView(byteData);
+      } finally {
+        image.dispose();
       }
-
-      return byteData.buffer.asUint8List();
     } finally {
+      _tearDownRenderTree(
+        buildOwner: buildOwner,
+        pipelineOwner: pipelineOwner,
+        focusManager: focusManager,
+        repaintBoundary: repaintBoundary,
+        renderView: renderView,
+        rootElement: rootElement,
+      );
+    }
+  }
+
+  void _tearDownRenderTree({
+    required BuildOwner buildOwner,
+    required PipelineOwner pipelineOwner,
+    required FocusManager focusManager,
+    required RenderRepaintBoundary repaintBoundary,
+    required RenderView? renderView,
+    required RenderObjectToWidgetElement<RenderBox>? rootElement,
+  }) {
+    try {
+      if (rootElement != null) {
+        // Re-attaching with a null child only schedules the removal; the
+        // buildScope call executes it, deactivating every descendant so
+        // finalizeTree can unmount them and run State.dispose.
+        RenderObjectToWidgetAdapter<RenderBox>(
+          container: repaintBoundary,
+        ).attachToRenderTree(buildOwner, rootElement);
+        buildOwner.buildScope(rootElement);
+      }
       buildOwner.finalizeTree();
+    } finally {
       pipelineOwner.rootNode = null;
-      renderView.dispose();
-      pipelineOwner.dispose();
-      focusManager.dispose();
+      try {
+        renderView?.child = null;
+        renderView?.dispose();
+      } finally {
+        try {
+          repaintBoundary.dispose();
+        } finally {
+          try {
+            pipelineOwner.dispose();
+          } finally {
+            focusManager.dispose();
+          }
+        }
+      }
     }
   }
 
