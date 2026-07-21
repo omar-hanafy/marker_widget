@@ -15,8 +15,9 @@ shipped in the pub.dev archive; it is installed from this Git repository.
 |---|---|---|
 | `using-marker-widget` | skill | Adding widget-rendered markers, advanced pins, or ground overlays; choosing among the to* methods; sizing with MarkerRenderOptions vs MapBitmapOptions; declaring imageDependencies; advanced-marker wiring (mapId, markerType, web marker library) |
 | `optimizing-marker-widget` | skill | Jank, memory growth, repeated renders, or stale icons after theme/locale/selection changes; MarkerCacheKey design, invalidation, cache bounds, preloading |
-| `troubleshooting-marker-widget` | skill | Blank markers, missing network images, MarkerImageLoadException, wrong size or blurry output, invisible advanced markers, StateError/ArgumentError messages, hanging widget tests |
-| `marker-widget-reviewer` | agent (Claude Code only) | Read-only audit of a codebase for marker_widget misuse (uncached hot-path renders, incomplete cache keys, undeclared image dependencies, missing advanced-marker prerequisites) |
+| `troubleshooting-marker-widget` | skill | Blank markers, missing network images, MarkerImageLoadException, MarkerRenderException, wrong size or blurry output, invisible advanced markers, StateError/ArgumentError messages, hanging widget tests |
+| `reviewing-marker-widget` | skill | Read-only audit of a codebase for marker_widget misuse; the canonical 12-item checklist workflow and report format used by every review surface |
+| `marker-widget-reviewer` | agent (Claude Code only) | Delegable wrapper that runs the `reviewing-marker-widget` skill with read-only tools |
 | `references/` | shared docs | v3 API quick reference and the 12-item review checklist used by the skills and the agent |
 | `evals/` + `graders/` | eval suite | Regression tests for skill triggering and answer quality (`claude plugin eval`) |
 
@@ -36,9 +37,11 @@ then `/plugin install marker-widget@marker-widget`.
 
 Skills auto-trigger from context; invoke explicitly as
 `/marker-widget:using-marker-widget`, `/marker-widget:optimizing-marker-widget`,
-or `/marker-widget:troubleshooting-marker-widget`. The reviewer agent is available as
+`/marker-widget:troubleshooting-marker-widget`, or
+`/marker-widget:reviewing-marker-widget`. The reviewer agent is available as
 `marker-widget:marker-widget-reviewer` (Claude delegates to it automatically for
-marker_widget audit requests, or @-mention it).
+marker_widget audit requests, or @-mention it); it follows the
+`reviewing-marker-widget` skill, so both paths produce the same report.
 
 Update with `claude plugin update marker-widget`; remove with
 `claude plugin uninstall marker-widget` and
@@ -59,18 +62,25 @@ Update with `codex plugin marketplace upgrade marker-widget`; remove with
 `codex plugin remove marker-widget@marker-widget` and
 `codex plugin marketplace remove marker-widget`.
 
-Codex plugins cannot bundle custom subagents. To get the reviewer as a Codex subagent,
-create `.codex/agents/marker-widget-reviewer.toml` in your project (optional, manual):
+For codebase audits in Codex, invoke the bundled skill directly:
+`$reviewing-marker-widget` (it contains the full checklist workflow and report
+format).
+
+Codex plugins cannot bundle custom subagents. To run the audit as a dedicated Codex
+subagent, create `.codex/agents/marker-widget-reviewer.toml` in your project
+(optional, manual; requires the marker-widget plugin to be installed so the skill
+is available):
 
 ```toml
 name = "marker-widget-reviewer"
 description = "Read-only auditor for marker_widget usage: caching, sizing, async images, advanced-marker prerequisites."
 sandbox_mode = "read-only"
 developer_instructions = """
-Audit the project's marker_widget usage against the checklist in the installed
-marker-widget plugin (references/review-checklist.md, items 1-12). Report findings as
-file:line, checklist item, severity, problem, fix. End with a severity-sorted summary
-and the items found clean. Do not edit anything.
+Invoke the reviewing-marker-widget skill from the installed marker-widget
+plugin and follow it exactly: its scope check, its 12-item checklist, and its
+four-section report (Summary, Findings, Clean, Not assessed). Do not edit
+anything. If the skill is not available, report that the marker-widget plugin
+must be installed first instead of improvising an audit.
 """
 ```
 
@@ -79,8 +89,8 @@ and the items found clean. Do not edit anything.
 - "Show each driver on the map as a rounded avatar badge rendered from a widget."
 - "Markers re-render every time the camera moves and the map janks. Fix it."
 - "My marker avatars from Image.network are blank white circles."
-- Claude Code: "Review this codebase for marker_widget problems." (delegates to the
-  reviewer agent)
+- "Review this codebase for marker_widget problems." (Claude Code delegates to the
+  reviewer agent; Codex runs the `reviewing-marker-widget` skill)
 
 ## Supported versions
 
@@ -111,7 +121,10 @@ and the items found clean. Do not edit anything.
   current instructions, and current-source fixtures.
 - New skill checklist: kebab-case directory == frontmatter `name`; `description`
   states trigger conditions only; essentials inline, depth in `references/`; add a
-  positive eval case and keep the negative-control case passing.
+  positive eval case named `<stem>-positive` for a skill named
+  `<stem>-marker-widget` (the validator enforces one per skill) and keep the
+  negative cases passing. Every eval case references a grader whose frontmatter
+  `name` matches its filename; graders without a case are errors.
 - Validate locally: `claude plugin validate . --strict` (plugin) and
   `claude plugin validate ../..` (marketplace, from this directory), then
   `claude --plugin-dir plugins/marker-widget` from the repo root for a live session.

@@ -1,0 +1,54 @@
+name: "reviewing-positive"
+description: "The reviewing skill should audit pasted marker code against the checklist and report in the four-section contract"
+prompt: |
+  Review this file from my Flutter app (lib/markers.dart) for marker_widget
+  problems. The app depends on marker_widget 3.x in pubspec.yaml.
+
+  ```dart
+  // lib/markers.dart
+  import 'package:flutter/material.dart';
+  import 'package:marker_widget/marker_widget.dart';
+
+  class MarkerBuilder {
+    static MarkerIcon? _homePin;
+
+    // Rendered once at startup, reused for every home marker.
+    static Future<void> preloadHomePin(BuildContext context) async {
+      _homePin ??= await const Icon(Icons.home, size: 40)
+          .toMarkerIcon(
+            context: context,
+            renderOptions: MarkerRenderOptions(logicalSize: const Size(48, 48)),
+          );
+    }
+
+    static Marker homeMarker(String id, LatLng position) =>
+        _homePin!.toMarker(
+          base: Marker(markerId: MarkerId(id), position: position),
+        );
+
+    // Called from GoogleMap(onCameraIdle: ...) on every camera stop.
+    Future<Marker> buildDriverMarker(
+      BuildContext context,
+      Driver driver,
+    ) async {
+      return DriverBadge(avatar: NetworkImage(driver.avatarUrl)).toMarker(
+        context: context,
+        base: Marker(
+          markerId: MarkerId(driver.id),
+          position: driver.position,
+        ),
+        renderOptions: MarkerRenderOptions(
+          logicalSize: const Size(56, 56),
+          cacheKey: MarkerCacheKey(driver.id, extra: driver.status),
+        ),
+      );
+    }
+  }
+  ```
+
+  DriverBadge shows the avatar image inside a circle. Drivers can change
+  their avatar photo at any time without changing their id or status.
+runs: 1
+max_turns: 10
+tools: [Read, Grep, Glob]
+grader: "reviewing-grader"

@@ -1,6 +1,6 @@
 ---
 name: troubleshooting-marker-widget
-description: Use when marker_widget output is wrong or failing - blank or transparent marker bitmaps, network images missing inside markers, MarkerImageLoadException, markers sized wrong or blurry, stale icons that ignore theme or state changes, advanced markers or PinConfig pins not appearing, StateError or ArgumentError from MapBitmapOptions or rendering, "No FlutterView is available", or widget tests that hang or time out on marker rendering.
+description: Use when marker_widget output is wrong or failing - blank or transparent marker bitmaps, network images missing inside markers, MarkerImageLoadException, MarkerRenderException from a broken marker widget, markers sized wrong or blurry, advanced markers or PinConfig pins not appearing, StateError or ArgumentError from MapBitmapOptions or rendering, "No FlutterView is available", or widget tests that hang or time out on marker rendering. Stale icons after theme, locale, or state changes are a cache-key concern - use marker-widget's optimizing skill for those.
 ---
 
 # Troubleshooting marker_widget
@@ -25,7 +25,8 @@ the exact symptom (screenshot or error text) and the render call site.
 
 | Message contains | Cause | Fix |
 |---|---|---|
-| `MarkerImageLoadException: image dependency ... failed to load` | A provider declared in `imageDependencies` failed to load or decode (bad URL, offline, corrupt bytes) | Fix the provider/source; catch the exception where a placeholder fallback is wanted |
+| `MarkerImageLoadException: image dependency ... failed to load` | A provider declared in `imageDependencies` failed to load or decode (bad URL, offline, corrupt bytes), or stalled past the renderer's `imageLoadTimeout` (default 30 s; the cause is then a `TimeoutException`) | Fix the provider/source; catch the exception where a placeholder fallback is wanted |
+| `MarkerRenderException: marker widget failed during build` (also `layout` / `paint`) | The marker widget threw during that phase of the off-screen pipeline; the render fails instead of capturing an ErrorWidget bitmap (3.1+) | Read `details`/`cause` for the original error and fix the widget; nothing was cached |
 | `configurationSize dimensions must be finite and non-negative` | A `MarkerImageDependency` has an invalid size | Pass the exact finite layout size used by the image, or omit it when the widget resolves the provider without a size |
 | `MapBitmapScaling.none cannot be combined with width, height, or imagePixelRatio` | Raw scaling plus size metadata (includes `pixelPerfect()` with `none`) | Drop the size fields, or use `MapBitmapScaling.auto`; for ground overlays call `toGroundOverlayBitmap()` |
 | `MapBitmapOptions.width must be > 0` (also height / imagePixelRatio variants) | Zero, negative, NaN, or infinite option value, often from a computed size | Guard the computation; sizes must be positive and finite |
@@ -48,12 +49,13 @@ the exact symptom (screenshot or error text) and the render call site.
 | Blank/transparent marker, no error | Widget displays an image whose provider is NOT declared in `imageDependencies`, so capture happened before decode | Widget contains `Image.network`/`NetworkImage`/`CachedNetworkImage`/`DecorationImage` and the render call has no matching dependency | Declare `MarkerImageDependency(provider)` in `renderOptions.imageDependencies`; the renderer then decodes it before capture |
 | Marker shows but image area inside is empty | The dependency uses a different provider cache key, or a size-sensitive provider was resolved without the widget's exact image layout size | Compare the provider key and `configurationSize` with the widget's `Image`/`DecorationImage` | Use a provider that resolves to the same cache key and set `configurationSize` to the exact image layout size; note `CachedNetworkImage` can render its own placeholder, so prefer a declared `ImageProvider` inside markers |
 | Runtime font, data, or async state is missing | The widget depends on work that was not completed before its one captured frame | Look for `FontLoader`, data futures, `FutureBuilder`, or post-frame setup | Move required work into `MarkerRenderOptions.prepare`, or complete it before rendering; do not rely on delays |
-| Marker huge or tiny on map | On-map size taken from wrong layer | `bitmapOptions` has explicit `width`/`height`, or `pixelPerfect()` on a high-DPR device | Default `MapBitmapOptions()` displays at `logicalSize`; remove conflicting metadata |
+| Marker huge or tiny on map | On-map size taken from wrong layer | `bitmapOptions` has explicit `width`/`height` that disagree with the design size, or a hardcoded `imagePixelRatio` that disagrees with the rendered DPR | Default `MapBitmapOptions()` displays at `logicalSize`; remove conflicting metadata |
 | Marker blurry/pixelated | Rendered at DPR 1 then upscaled | Explicit `pixelRatio: 1.0`, or bytes reused across DPRs via persisted cache | Let `pixelRatio` default to the view DPR; the renderer keys cache entries by DPR automatically |
-| Marker crisp but size differs per device | `pixelPerfect()`/`imagePixelRatio` path in use | See `bitmapOptions` | That is the documented tradeoff; use default options for device-independent size |
+| Marker crisp but size differs per device | An explicit `imagePixelRatio` that does not match the bitmap's actual rendered DPR | See `bitmapOptions` (note: `pixelPerfect()` supplies the rendered DPR, so for marker_widget bitmaps it lands back at ~`logicalSize`) | Remove the hardcoded ratio; use default options for device-independent size |
 | Icon ignores dark mode / locale / selection | Cache key missing that input | `MarkerCacheKey` lacks `brightness`/`locale`/`extra` | Add the input to the key; see marker-widget:optimizing-marker-widget |
 | Icon re-renders on every call despite a cacheKey | Key lacks value equality (fresh `List`/`Map`/object per build) | `cacheSize` grows or `isCached` false with stable inputs | Use `MarkerCacheKey` with record-typed `extra`, or any value-equal key |
-| Marker uses wrong theme/direction/language | `context:` omitted at render | Call has no `context` argument | Pass `context:` from the app tree |
+| Marker uses wrong theme/direction | `context:` omitted at render | Call has no `context` argument | Pass `context:` from the app tree |
+| Marker text in the wrong language | Localized strings resolved inside the marker widget; the detached tree has no `Localizations` scope (3.1+) | Widget calls `Localizations.of`/`.localeOf` or delegates inside itself | Resolve the strings in the app and pass them into the widget; set `Text.locale` where glyph selection depends on it |
 | Widget layout differs from the same widget on screen | Render tree MediaQuery differs: `MediaQuery.size` is the marker's `logicalSize`; screen padding/insets/display features are zeroed | Widget reads `MediaQuery.of(context).size` or uses `SafeArea` | Size the widget from its own constraints, not MediaQuery; `SafeArea` renders edge to edge by design |
 | Map re-sends every marker icon on each rebuild (churn, platform jank) | New `MarkerIcon` instances built per rebuild instead of reuse | Markers rebuilt from unchanged state still trigger platform updates | Reuse `MarkerIcon` instances (cache hits return the same instance); descriptors are then identical and unchanged markers stay `==` |
 
@@ -70,7 +72,7 @@ the exact symptom (screenshot or error text) and the render call site.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `testWidgets` hangs/times out on any `to*` call | flutter_test fake async never completes `toImage`/PNG encode | Wrap the render: `await tester.runAsync(() => widget.toMarkerIcon(...))`; pump a widget first for a context (the package's own test suite is the reference) |
+| `testWidgets` hangs/times out on a `to*` call that reaches capture | flutter_test fake async never completes `toImage`/PNG encode | Wrap the render: `await tester.runAsync(() => widget.toMarkerIcon(...))`; pump a widget first for a context (the package's own test suite is the reference). Validation-only failures (invalid `MapBitmapOptions`, `AdvancedMarker` base) throw before capture and need no `runAsync` |
 | Renders fine in `flutter run`, fails in CI | No implicit view / binding differences in headless env | Ensure `TestWidgetsFlutterBinding.ensureInitialized()`; keep renders inside `runAsync` |
 
 ## When it is not marker_widget

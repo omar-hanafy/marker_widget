@@ -60,8 +60,11 @@ Decision points:
   the widget is designed for. Leave `pixelRatio` unset (defaults to device DPR).
 - Default `MapBitmapOptions()` shows the marker at exactly `logicalSize` logical px on
   the map, consistent across devices. This is right for almost everyone.
-- `MapBitmapOptions.pixelPerfect()` sizes by physical pixels instead (marker size then
-  varies across devices) - only when pixel-exact fidelity beats size consistency.
+- `MapBitmapOptions.pixelPerfect()` asks the platform to derive the on-map size from
+  the encoded pixel dimensions and the rendered DPR. For marker_widget-generated
+  bitmaps that lands back at approximately `logicalSize` (modulo rounding), so
+  default options remain preferable: they send the intended logical width and height
+  explicitly.
 - `MapBitmapScaling.none` (or `toGroundOverlayBitmap()`): raw bytes, no metadata. Never
   combine with `width`/`height`/`imagePixelRatio`/`pixelPerfect` - that throws
   `StateError` at runtime.
@@ -74,9 +77,14 @@ Decision points:
   provider that resolves to the same cache key as the widget's provider. Reusing the
   same instance is simplest. Set `configurationSize` to the exact layout
   size passed to a size-sensitive `Image` or `DecorationImage`. The renderer decodes
-  every declared provider before capture and keeps it alive until capture finishes -
-  deterministic, no delays, no blank markers. A provider that fails throws
-  `MarkerImageLoadException`; catch it where a placeholder fallback is wanted.
+  every declared provider to its first frame before capture and keeps it alive until
+  capture finishes - deterministic, no delays, no blank markers. Animated GIF/WebP
+  providers are outside that contract (the captured frame is unspecified); convert
+  them to a static frame first. A provider that fails throws
+  `MarkerImageLoadException`, as does one that stalls past the renderer's
+  `imageLoadTimeout` (default 30 seconds); catch it where a placeholder fallback is
+  wanted. When the provider's URL or content can change, put that URL or a content
+  revision in the `cacheKey` too - the cache is consulted before images resolve.
   Decode readiness does not settle wrapper-owned placeholders, animations, or
   later-frame state; those wrappers paint whatever their single build-and-paint pass
   produces.
@@ -86,9 +94,12 @@ Decision points:
   revision in `cacheKey` whenever it changes pixels.
 - Pass `context:` whenever the widget uses Theme, MediaQuery, Directionality,
   or DefaultAssetBundle. The context locale configures image-provider resolution,
-  but localization resources are not reloaded; pass already resolved localized
-  values into the widget. Arbitrary inherited state such as Provider, Riverpod,
-  Bloc, Navigator, Overlay, and Scaffold is not captured. Pass those values into the
+  but the detached tree has NO `Localizations` scope (3.1+; mounting one reports
+  the locale engine-wide), so `Localizations.of` lookups resolve to nothing: pass
+  already resolved localized values into the widget and set `Text.locale` where
+  glyph selection depends on it. Arbitrary inherited state such as Provider,
+  Riverpod, Bloc, Navigator, Overlay, and Scaffold is not captured, and
+  `View.of(context)` has no `View` widget to find. Pass those values into the
   marker widget or wrap the supplied widget with the required scope. Omit `context`
   only for fully self-contained icons. Inside the render tree, `MediaQuery.size`
   equals the marker's `logicalSize`, not the screen.
@@ -140,9 +151,11 @@ symptoms to causes.
 `toMarker(context: context, base: Marker(markerId: MarkerId(driver.id), position:
 driver.latLng), renderOptions: MarkerRenderOptions(logicalSize: const Size(56, 56),
 cacheKey: MarkerCacheKey(driver.id, brightness: Theme.of(context).brightness,
-extra: driver.status), imageDependencies: [MarkerImageDependency(avatar,
-configurationSize: const Size(56, 56))]))`; store results in a
-`Set<Marker>`; rebuild only markers whose status changed (cache serves the rest).
+extra: (status: driver.status, avatar: driver.avatarUrl)), imageDependencies:
+[MarkerImageDependency(avatar, configurationSize: const Size(56, 56))]))`; the
+avatar URL sits in the key because a changed avatar must not serve the old cached
+icon; store results in a `Set<Marker>`; rebuild only markers whose status changed
+(cache serves the rest).
 
 Full API tables, defaults, and exact error strings: ../../references/api-quick-reference.md
 (relative to this skill directory).

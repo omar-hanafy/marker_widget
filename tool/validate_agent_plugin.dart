@@ -2,9 +2,12 @@
 // marketplace catalogs for both Claude Code and OpenAI Codex.
 //
 // Checks: required files, JSON validity, version sync with pubspec.yaml and
-// CHANGELOG.md, kebab-case names, catalog source paths, SKILL.md frontmatter
-// (shared allowlist for both products), referenced files, eval/grader wiring,
-// absolute-path and secret-like leaks, and .pubignore coverage.
+// CHANGELOG.md, the runtime dependency allowlist, kebab-case names, catalog
+// source paths and required Codex policy fields, SKILL.md frontmatter (shared
+// allowlist for both products), referenced files, agent read-only tooling,
+// eval/grader wiring (one positive case per skill, no orphan graders),
+// removed v2 API names in current-only content, absolute-path and secret-like
+// leaks, and .pubignore coverage.
 //
 // Usage: dart run tool/validate_agent_plugin.dart   (from the repo root)
 // Exits non-zero with one line per problem; prints OK summary otherwise.
@@ -18,6 +21,34 @@ void _err(String message) => _errors.add(message);
 final RegExp _kebab = RegExp(r'^[a-z0-9]+(-[a-z0-9]+)*$');
 
 const String _pluginDir = 'plugins/marker-widget';
+
+/// The complete allowed runtime dependency set. The package is facade-only:
+/// platform implementations arrive through google_maps_flutter itself, and
+/// the changelog promises exactly this set. Anything else here is drift.
+const Set<String> _allowedRuntimeDeps = <String>{
+  'flutter',
+  'google_maps_flutter',
+};
+
+/// Public API names removed in v3. Current-only skills, references, and
+/// agents must not mention them; migration history lives in CHANGELOG.md and
+/// the README migration section only.
+const List<String> _removedV2Names = <String>[
+  'WidgetBitmapRenderOptions',
+  'defaultMarkerIconRenderer',
+  'buildMarkerCacheKey',
+  'buildClusterCacheKey',
+  'waitForImages',
+  'initialImageDelay',
+  'imageRepaintDelay',
+  'MarkerIconScalingMode',
+  'toMarkerBitmap',
+  'widgetToMarkerBitmap',
+];
+
+/// The only tools the plugin's agents may declare; the plugin promises a
+/// read-only reviewer with no execution surface.
+const Set<String> _allowedAgentTools = <String>{'Read', 'Grep', 'Glob'};
 const Set<String> _skillFrontmatterAllowlist = <String>{
   // Shared allowlist: Claude Code accepts these and the Codex CLI restricts
   // frontmatter to exactly this set (plus disable-model-invocation).
@@ -53,6 +84,7 @@ void main() {
     '.agents/plugins/marketplace.json',
   );
 
+  _checkRuntimeDependencies();
   _checkManifest(claudeManifest, 'claude', pubspecVersion);
   _checkManifest(codexManifest, 'codex', pubspecVersion);
   _checkClaudeMarketplace(claudeMarketplace, pubspecVersion);
@@ -60,6 +92,7 @@ void main() {
   _checkSkills();
   _checkAgents();
   _checkEvals();
+  _checkRemovedNames();
   _checkChangelog(pubspecVersion);
   _checkPubignore();
   _checkLeaks();
@@ -84,6 +117,48 @@ String? _pubspecVersion() {
     multiLine: true,
   ).firstMatch(File('pubspec.yaml').readAsStringSync());
   return m?.group(1);
+}
+
+/// Asserts the pubspec `dependencies:` block contains exactly
+/// [_allowedRuntimeDeps]. This would have caught the working-tree drift that
+/// both external 3.0.0 reviews flagged as their top finding.
+void _checkRuntimeDependencies() {
+  final List<String> lines = const LineSplitter().convert(
+    File('pubspec.yaml').readAsStringSync(),
+  );
+  final Set<String> declared = <String>{};
+  bool inDependencies = false;
+  for (final String line in lines) {
+    if (RegExp(r'^dependencies:\s*$').hasMatch(line)) {
+      inDependencies = true;
+      continue;
+    }
+    if (inDependencies) {
+      if (line.trim().isEmpty) {
+        continue;
+      }
+      if (!line.startsWith(' ')) {
+        break; // next top-level key ends the block
+      }
+      final RegExpMatch? dep = RegExp(r'^  ([A-Za-z0-9_]+):').firstMatch(line);
+      if (dep != null) {
+        declared.add(dep.group(1)!);
+      }
+    }
+  }
+  for (final String dep in declared) {
+    if (!_allowedRuntimeDeps.contains(dep)) {
+      _err(
+        'pubspec.yaml: runtime dependency "$dep" is outside the allowed set '
+        '$_allowedRuntimeDeps (facade-only policy; see AGENTS.md)',
+      );
+    }
+  }
+  for (final String dep in _allowedRuntimeDeps) {
+    if (!declared.contains(dep)) {
+      _err('pubspec.yaml: expected runtime dependency "$dep" is missing');
+    }
+  }
 }
 
 Map<String, Object?>? _readJson(String path) {
@@ -138,7 +213,12 @@ void _checkManifest(
   }
   if (flavor == 'codex') {
     final Object? skills = manifest['skills'];
-    if (skills is String) {
+    if (skills is! String) {
+      _err(
+        '$path: a "skills" path is required for the Codex manifest '
+        '(this plugin ships its content as skills)',
+      );
+    } else {
       if (!skills.startsWith('./')) {
         _err('$path: skills path must be ./-relative, got "$skills"');
       }
@@ -225,6 +305,12 @@ void _checkCodexMarketplace(Map<String, Object?>? marketplace) {
   if (name is! String || !RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(name)) {
     _err('$path: marketplace name must match [A-Za-z0-9_-]+, got "$name"');
   }
+  final Object? interface = marketplace['interface'];
+  if (interface is! Map ||
+      interface['displayName'] is! String ||
+      (interface['displayName']! as String).isEmpty) {
+    _err('$path: interface.displayName is required (shown in the Codex UI)');
+  }
   final Object? plugins = marketplace['plugins'];
   if (plugins is! List || plugins.isEmpty) {
     _err('$path: plugins array is required and must not be empty');
@@ -238,6 +324,18 @@ void _checkCodexMarketplace(Map<String, Object?>? marketplace) {
     final Object? pluginName = entry['name'];
     if (pluginName is! String || !_kebab.hasMatch(pluginName)) {
       _err('$path: plugin name must be kebab-case, got "$pluginName"');
+    }
+    final Object? policy = entry['policy'];
+    if (policy is! Map ||
+        policy['installation'] is! String ||
+        policy['authentication'] is! String) {
+      _err(
+        '$path: policy.installation and policy.authentication are required '
+        'for "$pluginName" (Codex marketplace schema)',
+      );
+    }
+    if (entry['category'] is! String) {
+      _err('$path: category is required for "$pluginName"');
     }
     final Object? source = entry['source'];
     if (source is! Map || source['source'] != 'local') {
@@ -413,6 +511,33 @@ void _checkAgents() {
     if (front['name'] == null || front['description'] == null) {
       _err('${f.path}: agent frontmatter needs name and description');
     }
+    final String fileStem = f.uri.pathSegments.last.replaceAll(
+      RegExp(r'\.md$'),
+      '',
+    );
+    if (front['name'] != null && front['name'] != fileStem) {
+      _err(
+        '${f.path}: frontmatter name "${front['name']}" must equal the '
+        'filename "$fileStem"',
+      );
+    }
+    final String? tools = front['tools'];
+    if (tools == null) {
+      _err(
+        '${f.path}: agent must declare an explicit read-only tools list '
+        '(subset of $_allowedAgentTools)',
+      );
+    } else {
+      for (final RegExpMatch m in RegExp(r'"([^"]+)"').allMatches(tools)) {
+        final String tool = m.group(1)!;
+        if (!_allowedAgentTools.contains(tool)) {
+          _err(
+            '${f.path}: tool "$tool" is outside the read-only allowlist '
+            '$_allowedAgentTools; the plugin promises read-only agents',
+          );
+        }
+      }
+    }
     _checkReferencedFiles(f.path, f.readAsStringSync());
   }
 }
@@ -423,12 +548,15 @@ void _checkEvals() {
     _err('$_pluginDir/evals: missing');
     return;
   }
+  final Set<String> referencedGraders = <String>{};
+  final Set<String> caseNames = <String>{};
   for (final Directory caseDir in evals.listSync().whereType<Directory>()) {
     final String dirName =
         caseDir.uri.pathSegments[caseDir.uri.pathSegments.length - 2];
     if (dirName == 'fixtures' || dirName == 'results') {
       continue;
     }
+    caseNames.add(dirName);
     final File caseFile = File('${caseDir.path}/case.yaml');
     if (!caseFile.existsSync()) {
       _err('${caseDir.path}: missing case.yaml');
@@ -443,12 +571,83 @@ void _checkEvals() {
       r'^grader:\s*"?([A-Za-z0-9_-]+)"?\s*$',
       multiLine: true,
     ).firstMatch(content);
-    if (graderRef != null &&
-        !File('$_pluginDir/graders/${graderRef.group(1)}.md').existsSync()) {
+    if (graderRef == null) {
+      _err('${caseFile.path}: every eval case must reference a grader');
+    } else {
+      final String grader = graderRef.group(1)!;
+      referencedGraders.add(grader);
+      final File graderFile = File('$_pluginDir/graders/$grader.md');
+      if (!graderFile.existsSync()) {
+        _err('${caseFile.path}: grader "$grader" has no file in graders/');
+      } else {
+        final Map<String, String>? front = _frontmatter(
+          graderFile.readAsStringSync(),
+        );
+        if (front == null || front['name'] != grader) {
+          _err(
+            '${graderFile.path}: grader frontmatter name '
+            '"${front?['name']}" must equal the filename "$grader"',
+          );
+        }
+      }
+    }
+  }
+
+  // One positive eval per skill: <stem>-marker-widget -> <stem>-positive.
+  for (final String skill in _skillNames()) {
+    final RegExpMatch? stem = RegExp(r'^(.+)-marker-widget$').firstMatch(skill);
+    if (stem == null) {
+      continue;
+    }
+    final String expected = '${stem.group(1)!}-positive';
+    if (!caseNames.contains(expected)) {
       _err(
-        '${caseFile.path}: grader "${graderRef.group(1)}" has no file in '
-        'graders/',
+        '$_pluginDir/evals: skill "$skill" has no positive eval case '
+        '"$expected" (one positive case per skill is required)',
       );
+    }
+  }
+
+  // No orphan graders.
+  final Directory graders = Directory('$_pluginDir/graders');
+  if (graders.existsSync()) {
+    for (final File f in graders.listSync().whereType<File>()) {
+      if (!f.path.endsWith('.md')) {
+        continue;
+      }
+      final String stem = f.uri.pathSegments.last.replaceAll(
+        RegExp(r'\.md$'),
+        '',
+      );
+      if (!referencedGraders.contains(stem)) {
+        _err('${f.path}: grader is not referenced by any eval case');
+      }
+    }
+  }
+}
+
+/// Current-only content must not mention APIs removed in v3; migration
+/// history belongs in CHANGELOG.md and the README migration section.
+void _checkRemovedNames() {
+  for (final String sub in <String>['skills', 'references', 'agents']) {
+    final Directory dir = Directory('$_pluginDir/$sub');
+    if (!dir.existsSync()) {
+      continue;
+    }
+    for (final File f in dir.listSync(recursive: true).whereType<File>()) {
+      if (!f.path.endsWith('.md')) {
+        continue;
+      }
+      final String content = f.readAsStringSync();
+      for (final String name in _removedV2Names) {
+        if (content.contains(name)) {
+          _err(
+            '${f.path}: mentions removed v2 API "$name"; current-only '
+            'content must use current names (migration history lives in '
+            'CHANGELOG.md)',
+          );
+        }
+      }
     }
   }
 }
@@ -458,8 +657,15 @@ void _checkChangelog(String? pubspecVersion) {
     return;
   }
   final String changelog = File('CHANGELOG.md').readAsStringSync();
-  if (!changelog.contains('[$pubspecVersion]')) {
-    _err('CHANGELOG.md: no entry for version $pubspecVersion');
+  final RegExp heading = RegExp(
+    '^## \\[${RegExp.escape(pubspecVersion)}\\]',
+    multiLine: true,
+  );
+  if (!heading.hasMatch(changelog)) {
+    _err(
+      'CHANGELOG.md: no "## [$pubspecVersion]" release heading '
+      '(a substring mention elsewhere does not count)',
+    );
   }
 }
 
@@ -513,6 +719,7 @@ void _checkLeaks() {
     File('.claude-plugin/marketplace.json'),
     File('.agents/plugins/marketplace.json'),
     File('AGENTS.md'),
+    File('README.md'),
   ];
   for (final FileSystemEntity root in roots) {
     if (root is File) {

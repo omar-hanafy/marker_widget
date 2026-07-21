@@ -5,6 +5,10 @@ name: using-grader
 Evaluate the assistant's answer about building widget-rendered coffee-shop markers
 with marker_widget.
 
+Score 0.0 regardless of the criteria below if no marker-widget skill was invoked
+during the run: a correct-looking answer produced without loading the
+`using-marker-widget` skill does not demonstrate that skill triggering works.
+
 Award points (sum, cap at 1.0):
 
 - 0.3: the answer uses the documented 3.x API shapes: an extension call such as

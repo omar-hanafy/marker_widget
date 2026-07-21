@@ -7,9 +7,9 @@ Render Flutter widgets into Google Maps bitmaps, glyphs, markers, and ground ove
 ## AI coding-assistant support (agent plugin)
 
 Package-specific support for **Claude Code** and **OpenAI Codex** ships from this
-repository as an installable agent plugin: three skills for correct integration,
-cache/performance tuning, and symptom-based troubleshooting, plus a read-only
-reviewer agent for Claude Code.
+repository as an installable agent plugin: four skills for correct integration,
+cache/performance tuning, symptom-based troubleshooting, and codebase review,
+plus a read-only reviewer agent for Claude Code.
 This is tooling for coding agents, not a runtime feature of the Dart package, and it
 is not part of the pub.dev archive.
 
@@ -53,11 +53,12 @@ recipe, maintainer guide): [`plugins/marker-widget/README.md`](plugins/marker-wi
 - Create `BitmapGlyph` and `PinConfig` from widgets for advanced marker pins
 - Create raw `BytesMapBitmap` instances for `GroundOverlay`
 - Deterministic readiness for declared images, runtime fonts, and asynchronous data
+- Loud failures: a broken marker widget fails the render with `MarkerRenderException` instead of caching an error bitmap
 - Separate render options from map bitmap options for cleaner sizing control
 - Collision-safe structured cache keys with `MarkerCacheKey`
 - LRU cache keyed by cache key, size, and pixel ratio, with entry limits, byte limits, and in-flight deduplication
-- Stable descriptor identity, so unchanged markers never resend icon bytes to the map
-- FIFO-bounded render concurrency and a per-render raster pixel budget
+- Stable descriptor, glyph, and pin identity, so unchanged markers never resend icon bytes to the map
+- FIFO-bounded render concurrency, a bounded image-load window, and a per-render raster pixel budget
 
 ## Installation
 
@@ -66,7 +67,7 @@ dependencies:
   flutter:
     sdk: flutter
   google_maps_flutter: ^2.17.1
-  marker_widget: ^3.0.0
+  marker_widget: ^3.1.0
 ```
 
 Then run:
@@ -109,9 +110,11 @@ final marker = await MyMarkerCard().toMarker(
 
 `marker_widget` re-exports the advanced marker types and the common marker
 construction types (`Marker`, `MarkerId`, `LatLng`, `BitmapDescriptor`, ...),
-so the whole marker flow works from a single import. They are the same
-declarations `google_maps_flutter` exports (2.17+ also re-exports the advanced
-types), so both imports can coexist.
+so the whole marker-construction flow works from a single import. Map widget
+configuration (`GoogleMap`, `GoogleMapMarkerType`, ...) still comes from
+`google_maps_flutter`. The re-exports are the same declarations
+`google_maps_flutter` exports (2.17+ also re-exports the advanced types), so
+both imports can coexist.
 
 ```dart
 final advancedMarker = await MyAvatarBadge().toAdvancedPinMarker(
@@ -126,9 +129,12 @@ final advancedMarker = await MyAvatarBadge().toAdvancedPinMarker(
   renderOptions: MarkerRenderOptions(
     logicalSize: Size(28, 28),
   ),
-  bitmapOptions: const MapBitmapOptions(width: 28, height: 28),
 );
 ```
+
+The default `MapBitmapOptions()` already displays the glyph at its rendered
+`logicalSize` (28 x 28 here); pass explicit bitmap options only to override
+that.
 
 Advanced markers also need:
 
@@ -174,7 +180,14 @@ Maps constructors.
 final renderOptions = MarkerRenderOptions(
   logicalSize: const Size(96, 96),
   pixelRatio: 3.0,
-  cacheKey: const MarkerCacheKey('user-42', brightness: Brightness.light),
+  cacheKey: MarkerCacheKey(
+    'user-42',
+    brightness: Brightness.light,
+    // The avatar is pixel content: when its URL (or content revision) can
+    // change, it must be part of the cache key, or the old cached icon is
+    // returned before the new image is ever resolved.
+    extra: (avatar: user.avatarUrl),
+  ),
   imageDependencies: [
     MarkerImageDependency(NetworkImage(user.avatarUrl)),
   ],
@@ -212,7 +225,14 @@ final marker = await DriverBadge(avatar: avatar).toMarker(
   base: Marker(markerId: MarkerId(user.id), position: user.position),
   renderOptions: MarkerRenderOptions(
     logicalSize: const Size(56, 56),
-    cacheKey: MarkerCacheKey(user.id, extra: user.status),
+    cacheKey: MarkerCacheKey(
+      user.id,
+      brightness: Theme.of(context).brightness,
+      // Everything that changes the rendered pixels belongs in the key:
+      // the status AND the avatar identity. With only user.id + status,
+      // a changed avatar URL would keep serving the old cached icon.
+      extra: (status: user.status, avatar: user.avatarUrl),
+    ),
     imageDependencies: [MarkerImageDependency(avatar)],
   ),
 );
@@ -222,10 +242,16 @@ The contract:
 
 - Each `MarkerImageDependency` is resolved against the captured render
   environment (pixel ratio, locale, text direction, asset bundle, and its
-  declared `configurationSize`) and awaited to full decode before the widget
-  tree is built.
+  declared `configurationSize`) and awaited until its first frame is decoded
+  before the widget tree is built. For static PNG/JPEG/WebP content that is
+  the full image; animated GIF/WebP providers are outside the deterministic
+  contract (the captured frame is unspecified), so convert animations to a
+  static frame first.
 - The decoded images are kept alive until the capture completes, so they
   cannot be evicted mid-render.
+- A dependency that neither decodes nor fails within the renderer's
+  `imageLoadTimeout` (default 30 seconds) fails the render with
+  `MarkerImageLoadException` instead of stalling the image queue forever.
 - Use the same provider instances (or providers with equal cache keys) as the
   widget itself displays.
 - For a provider whose key depends on `ImageConfiguration.size`, set
@@ -326,18 +352,30 @@ as marker content:
 
 - platform views and texture-backed widgets (maps, video players, web views)
 - widgets that only settle in later frames or post-frame callbacks
-- live animation (the snapshot freezes the first frame)
+- live animation (the snapshot freezes the first frame), including animated
+  GIF/WebP image providers
 - widgets that require ancestors such as a `Navigator`, `Overlay`,
   `Scaffold`, or a state-management scope; wrap the marker widget in what it
   needs before rendering
+- widgets that call `View.of(context)` or `Localizations.of(context)`
+  directly; the detached tree provides a `MediaQuery` but no `View` or
+  `Localizations` scope
+
+A broken marker widget (one that throws during build, layout, or paint) fails
+the render with `MarkerRenderException` carrying the phase and the original
+error report, instead of silently producing and caching a red-and-grey error
+bitmap.
 
 Passing `context` captures inherited themes, `MediaQuery` accessibility
 values (text scaling, brightness, bold text), `Directionality`, and the asset
-bundle. Its locale is used for image-provider configuration, but localization
-resources and arbitrary `InheritedWidget`s such as provider scopes are not
-copied. Pass resolved localized values into the widget. Screen geometry (notch
-padding, keyboard insets, display features) is deliberately zeroed out, so a
-`SafeArea` inside a marker renders edge to edge.
+bundle. Its locale is used for image-provider configuration, but no
+`Localizations` scope is installed inside the detached tree (mounting one
+reports its locale engine-wide via `setApplicationLocale`), and arbitrary
+`InheritedWidget`s such as provider scopes are not copied. Pass resolved
+localized values into the widget, with an explicit `Text.locale` where glyph
+selection depends on it. Screen geometry (notch padding, keyboard insets,
+display features) is deliberately zeroed out, so a `SafeArea` inside a marker
+renders edge to edge.
 
 Interactivity flattens: buttons and gestures inside the widget do nothing on
 the map. Marker taps and drags come from the `Marker` / `AdvancedMarker` you
@@ -383,6 +421,13 @@ final key = MarkerCacheKey(
 );
 ```
 
+"Everything that changes pixels" goes beyond brightness and locale. When the
+rendered output depends on an image URL or content revision, custom theme
+colors, text scaling, bold-text accessibility, layout direction, or a
+prepared-data revision, those values belong in `extra` too. The cache lookup
+happens before image dependencies are resolved, so an avatar whose URL
+changed but whose key did not keeps serving the old icon.
+
 `extra` is compared with `==`, so use values with structural equality; records
 work well. For cluster badges, `MarkerCacheKey.cluster(count: 27, ...)` builds
 count-aware keys that never collide with plain keys. Any custom object with
@@ -393,11 +438,12 @@ not a requirement.
 decoded bitmap memory the platform map allocates. Icons larger than the limit
 are returned to the caller but not cached.
 
-Repeated `toMapBitmap()` / `toBitmapDescriptor()` calls on the same
-`MarkerIcon` return the identical descriptor instance. Google Maps compares
-icons by identity, so rebuilt markers stay equal to their previous versions
-and the map skips redundant platform-side icon updates. Cache hits therefore
-avoid both re-rendering and marker churn.
+Repeated `toMapBitmap()` / `toBitmapDescriptor()` / `toBitmapGlyph()` /
+`toPinConfig()` calls with equal arguments on the same `MarkerIcon` return
+the identical descriptor, glyph, or pin instance. Google Maps compares icons
+by identity, so rebuilt markers (classic, advanced, and advanced pins) stay
+equal to their previous versions and the map skips redundant platform-side
+icon updates. Cache hits therefore avoid both re-rendering and marker churn.
 
 ### Render limits
 
@@ -411,6 +457,10 @@ avoid both re-rendering and marker churn.
   gate and retain its permit through capture. This bounds decoded native images,
   while an image-free render can bypass a stalled provider. Set to null to disable
   the image gate.
+- `imageLoadTimeout` (default 30 seconds): a declared image dependency that
+  neither decodes nor fails within the window fails the render with
+  `MarkerImageLoadException` (cause: `TimeoutException`), releasing the image
+  permit for queued jobs. Set to null to wait indefinitely.
 - `maxRasterPixels` (default 4194304, a 2048 x 2048 physical bitmap): a
   render whose rounded physical output area exceeds the budget throws
   `ArgumentError` instead of allocating an enormous bitmap. Set to null to disable
@@ -424,6 +474,37 @@ avoid both re-rendering and marker churn.
 - The package only renders widgets and builds marker objects; you still need normal Google Maps API key and manifest setup
 - In multi-view scenarios, pass `context` so the renderer resolves the `FlutterView` the marker belongs to
 - Google Maps types come from the supported `google_maps_flutter` facade; `marker_widget` re-exports the subset used by its API
+
+## Migrating from 2.x
+
+Renamed and replaced APIs:
+
+| 2.x API | 3.x replacement |
+| --- | --- |
+| `WidgetBitmapRenderOptions` | `MarkerRenderOptions` |
+| `defaultMarkerIconRenderer` | `MarkerIconRenderer.shared` |
+| `buildMarkerCacheKey(...)` | `MarkerCacheKey(...)` |
+| `buildClusterCacheKey(...)` | `MarkerCacheKey.cluster(count: ...)` |
+| `waitForImages` / render delay knobs | `MarkerRenderOptions.imageDependencies` (deterministic decode) |
+
+Other changes a 2.x consumer will notice:
+
+- `Equatable` is gone from the API surface (and from the dependencies); the
+  options classes implement value equality directly and no longer expose
+  `props`.
+- The `MapBitmap` base type is no longer re-exported: v3 imports only the
+  supported `google_maps_flutter` facade, which does not export it. Package
+  APIs return the concrete `BytesMapBitmap` (still re-exported); import
+  `google_maps_flutter` where the abstract type is needed.
+- `maxConcurrentRenders` defaults to 1 (the `2.1.0-dev.1` prerelease
+  documented 3). Raise it explicitly if batch prewarming should overlap
+  renders.
+- Rendered output changed deliberately versus 2.0.1: screen padding, insets,
+  and display features are zeroed in the marker's `MediaQuery`, and invalid
+  dimensions/ratios throw instead of propagating.
+- The agent plugin ships current-API skills only; the guided v1-to-v2
+  migration skill was removed. This table plus the changelog is the v2-to-v3
+  migration path.
 
 ## Example
 

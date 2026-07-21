@@ -3,6 +3,57 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0] - 2026-07-21
+
+Hardening release driven by two independent external reviews of 3.0.0. Three
+silent-failure behaviors were corrected; consult the behavior notes below if a
+marker widget relied on them.
+
+### Added
+
+- `MarkerRenderException` and `MarkerRenderPhase`: a marker widget that throws
+  during build, layout, or paint now fails the render with the phase and the
+  original `FlutterErrorDetails`, instead of being captured (and cached) as a
+  red-and-grey `ErrorWidget` bitmap. Flutter reports those errors instead of
+  rethrowing, so previously they were invisible to the caller.
+- `MarkerIconRenderer.imageLoadTimeout` (default 30 seconds): a declared image
+  dependency that neither decodes nor fails within the window fails the render
+  with `MarkerImageLoadException` (cause: `TimeoutException`) and releases its
+  image permit. Previously one stalled provider could block every later
+  image-backed render forever. Set to null to restore indefinite waiting.
+- A "Migrating from 2.x" README section with the complete 2.x-to-3.x rename
+  map; the 3.0.0 notes below were amended with the same information.
+
+### Changed
+
+- The detached render tree no longer mounts a `Localizations` widget. In
+  current Flutter, every mounted `Localizations` state reports its locale
+  engine-wide through `PlatformDispatcher.setApplicationLocale`, so a
+  (possibly queued and stale) marker render could overwrite the application
+  locale the running app last reported. The captured context locale still
+  configures image-provider resolution, and directionality is still captured.
+  Behavior note: `Localizations.of` / `Localizations.maybeLocaleOf` inside a
+  marker widget now resolve to nothing; pass resolved localized strings into
+  the widget and set `Text.locale` explicitly where glyph selection depends
+  on it.
+- `MarkerIcon.toBitmapGlyph` and `MarkerIcon.toPinConfig` memoize their
+  wrappers exactly like `toMapBitmap`: repeated calls with equal arguments on
+  the same icon return the identical `BitmapGlyph` / `PinConfig` instance.
+  Upstream `PinConfig` and `BitmapGlyph` have no value equality, so advanced
+  pin markers rebuilt from a reused icon previously always compared unequal
+  and pushed redundant platform updates.
+- The widget extensions validate `MapBitmapOptions` (and `toMarker` its
+  classic-marker base) before preparation, image decoding, or rendering
+  starts, so guaranteed-to-fail calls no longer pay for a full render, run
+  `prepare` side effects, or populate the cache first.
+- The off-screen tree is unmounted immediately after capture, before PNG
+  encoding: `State.dispose` and render-object teardown run earlier, and a
+  teardown failure is reported through `FlutterError.reportError` instead of
+  masking the primary render error.
+- Image-dependency readiness is documented precisely as the first decoded
+  frame: complete for static content, unspecified for animated GIF/WebP
+  providers, which are outside the deterministic contract.
+
 ## [3.0.0] - 2026-07-21
 
 Production rebuild of the widget-to-marker pipeline. The public package and its
@@ -10,6 +61,23 @@ agent plugin expose the focused v3 model.
 
 ### Breaking
 
+- Renamed and replaced 2.x APIs (each compile error maps directly):
+  `WidgetBitmapRenderOptions` is now `MarkerRenderOptions`, the top-level
+  `defaultMarkerIconRenderer` is now `MarkerIconRenderer.shared`,
+  `buildMarkerCacheKey(...)` is now `MarkerCacheKey(...)`, and
+  `buildClusterCacheKey(...)` is now `MarkerCacheKey.cluster(count: ...)`.
+  The `waitForImages`/delay knobs were removed in favor of
+  `MarkerRenderOptions.imageDependencies`.
+- `Equatable` was removed from the API surface (and the dependency dropped);
+  the options classes implement `==`/`hashCode` directly and no longer expose
+  `props`.
+- The `MapBitmap` base type is no longer re-exported: v3 imports only the
+  supported `google_maps_flutter` facade, which does not export it. Package
+  APIs return the concrete `BytesMapBitmap`, which remains re-exported.
+- `maxConcurrentRenders` now defaults to 1; the `2.1.0-dev.1` prerelease
+  documented a default of 3.
+- The repo-distributed agent plugin ships current-API skills only; the
+  guided v1-to-v2 migration skill (added in 2.0.1) was removed.
 - Raised minimums: Dart `^3.12.0`, Flutter `>=3.44.0`, and
   `google_maps_flutter ^2.17.1`.
 - `MarkerRenderOptions` is a non-const immutable value that defensively copies

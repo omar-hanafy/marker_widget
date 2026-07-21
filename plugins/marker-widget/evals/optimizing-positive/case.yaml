@@ -1,0 +1,7 @@
+name: "optimizing-positive"
+description: "The optimizing skill (not troubleshooting) should own stale-icon and hot-path caching symptoms"
+prompt: "My Flutter app renders delivery markers with marker_widget inside onCameraIdle, and the map janks every time the user stops panning. Also, after toggling dark mode the markers keep their old light-mode colors until I restart the app. How do I fix the performance and the stale icons?"
+runs: 1
+max_turns: 8
+tools: [Read, Grep, Glob]
+grader: "optimizing-grader"

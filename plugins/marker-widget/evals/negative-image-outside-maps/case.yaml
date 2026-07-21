@@ -1,0 +1,7 @@
+name: "negative-image-outside-maps"
+description: "Avatar-image work outside any map context must not trigger marker-widget skills"
+prompt: "In my Flutter app's profile screen the user avatar comes from Image.network and it flickers when the screen rebuilds. The avatar can change when the user uploads a new photo. How should I cache and display it properly?"
+runs: 1
+max_turns: 6
+tools: [Read, Grep, Glob]
+grader: "negative-image-grader"

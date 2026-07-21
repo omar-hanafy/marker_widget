@@ -1,7 +1,7 @@
 {
   "name": "marker-widget",
   "interface": {
-    "displayName": "marker_widget plugins"
+    "displayName": "Marker Widget"
   },
   "plugins": [
     {

@@ -3,6 +3,12 @@ FOLLOWUP.md
 .claude/
 plugins/marker-widget/evals/results/
 
+# The example ships android/ios/web only; locally regenerated desktop
+# platform folders stay out of git and the pub archive.
+example/macos/
+example/linux/
+example/windows/
+
 # Miscellaneous
 *.class
 *.lock

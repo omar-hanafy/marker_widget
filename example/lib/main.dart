@@ -62,12 +62,14 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
   String? get _advancedMapId =>
       _advancedMapIdValue.isEmpty ? null : _advancedMapIdValue;
 
-  MemoryImage? _avatarImage;
+  final Map<int, MemoryImage> _avatarImages = <int, MemoryImage>{};
 
-  /// Draws a tiny avatar once and wraps it in a [MemoryImage], standing in
-  /// for the avatars a real app would load with [NetworkImage].
+  /// Draws a tiny avatar per color and wraps it in a [MemoryImage], standing
+  /// in for the avatars a real app would load with [NetworkImage]. Keyed by
+  /// color for the same reason marker cache keys must include image content:
+  /// reusing one cached image across theme changes would paint stale pixels.
   Future<MemoryImage> _ensureAvatarImage(Color color) async {
-    final MemoryImage? existing = _avatarImage;
+    final MemoryImage? existing = _avatarImages[color.toARGB32()];
     if (existing != null) {
       return existing;
     }
@@ -98,7 +100,7 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
     }
 
     final MemoryImage provider = MemoryImage(Uint8List.sublistView(byteData));
-    _avatarImage = provider;
+    _avatarImages[color.toARGB32()] = provider;
     return provider;
   }
 

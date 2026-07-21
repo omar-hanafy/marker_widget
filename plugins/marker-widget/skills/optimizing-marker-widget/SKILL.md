@@ -19,13 +19,17 @@ first-time integration (marker-widget:using-marker-widget).
 1. `cacheKey` is opt-in. No key = no cache AND no in-flight deduplication; identical
    concurrent renders each pay full cost.
 2. A key must encode every content input that changes pixels: identity, brightness,
-   locale, plus `extra:` for state (selected, count, badge, avatar revision). Missing
-   input = stale icon when that input changes. The renderer keys every cache entry by
-   the resolved logicalSize and pixelRatio automatically, so `MarkerCacheKey` carries
-   only content inputs and a reused key can never return a wrong-sized icon. `extra`
-   compares with `==`: use immutable records or other value-equal types. Fresh
-   identity-based collections miss the cache; mutating and reusing one can return
-   stale output.
+   locale, plus `extra:` for state (selected, count, badge) AND for every mutable
+   image the widget shows, its URL or content revision - the cache is consulted
+   before image dependencies resolve, so a changed avatar URL behind an unchanged
+   key serves the old icon forever. Custom theme colors, text scaling, bold-text
+   accessibility, directionality, and prepared-data revisions belong in `extra` too
+   when the widget renders them. Missing input = stale icon when that input changes.
+   The renderer keys every cache entry by the resolved logicalSize and pixelRatio
+   automatically, so `MarkerCacheKey` carries only content inputs and a reused key
+   can never return a wrong-sized icon. `extra` compares with `==`: use immutable
+   records or other value-equal types. Fresh identity-based collections miss the
+   cache; mutating and reusing one can return stale output.
    When `MarkerRenderOptions.prepare` supplies content, include that content's
    revision because preparation is skipped on cache hits.
 3. Keys that over-encode (e.g. include a timestamp or camera position) defeat caching
@@ -73,9 +77,11 @@ decoded bitmap memory.
 The renderer also bounds throughput: `maxConcurrentRenders` (default 1) queues
 detached render trees in FIFO order, while `maxConcurrentImageLoads` (default 1)
 separately bounds image-backed jobs from dependency resolution through capture.
-Image-free jobs can bypass a stalled provider. `maxRasterPixels` (default one
-2048x2048 physical bitmap) rejects accidental giant outputs using their exact
-rounded physical area. Raise or disable (null) a limit only with measured evidence.
+Image-free jobs can bypass a stalled provider, and `imageLoadTimeout` (default 30
+seconds, 3.1+) fails a dependency that never decodes so it cannot hold the image
+permit forever. `maxRasterPixels` (default one 2048x2048 physical bitmap) rejects
+accidental giant outputs using their exact rounded physical area. Raise or disable
+(null) a limit only with measured evidence.
 
 ### Step 5: Verify with numbers
 
