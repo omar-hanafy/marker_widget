@@ -278,9 +278,8 @@ void _checkClaudeMarketplace(
           '$path: source for "$pluginName" must be ./-relative without '
           '"..", got "$source"',
         );
-      } else if (!File(
-        '${source.substring(2)}/.claude-plugin/plugin.json',
-      ).existsSync()) {
+      } else if (!File('${source.substring(2)}/.claude-plugin/plugin.json')
+          .existsSync()) {
         _err('$path: source "$source" has no .claude-plugin/plugin.json');
       }
     } else {
@@ -350,9 +349,8 @@ void _checkCodexMarketplace(Map<String, Object?>? marketplace) {
         '$path: source.path must be ./-relative without "..", got '
         '"$sourcePath"',
       );
-    } else if (!File(
-      '${sourcePath.substring(2)}/.codex-plugin/plugin.json',
-    ).existsSync()) {
+    } else if (!File('${sourcePath.substring(2)}/.codex-plugin/plugin.json')
+        .existsSync()) {
       _err('$path: source.path "$sourcePath" has no .codex-plugin/plugin.json');
     }
   }
@@ -439,9 +437,8 @@ Map<String, String>? _frontmatter(String content) {
       }
       return result;
     }
-    final RegExpMatch? kv = RegExp(
-      r'^([A-Za-z0-9_-]+):\s*(.*)$',
-    ).firstMatch(line);
+    final RegExpMatch? kv = RegExp(r'^([A-Za-z0-9_-]+):\s*(.*)$')
+        .firstMatch(line);
     if (kv != null) {
       if (currentKey != null) {
         result[currentKey] = currentValue.toString().trim();

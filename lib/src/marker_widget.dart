@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart'
     show FlutterExceptionHandler, defaultTargetPlatform, listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 bool _isPositiveFinite(double value) => value.isFinite && value > 0;
@@ -216,7 +217,8 @@ final class MarkerRenderOptions {
   /// widget is built. The callback runs after cache lookup and in-flight
   /// deduplication, before image decoding and render-slot acquisition. If its
   /// output can change, include a revision in [cacheKey]. Errors propagate to
-  /// the caller.
+  /// the caller. Cache invalidation performed synchronously by this callback
+  /// also prevents its own pending render from being cached.
   final Future<void> Function()? prepare;
 
   /// Image providers that must be fully decoded before the widget is
@@ -227,8 +229,12 @@ final class MarkerRenderOptions {
   /// renderer resolves each provider against the render environment, waits
   /// for the decode to complete, and keeps the decoded image alive until the
   /// capture finishes. A provider that fails to load fails the render with
-  /// [MarkerImageLoadException]. Wrappers with their own placeholder,
-  /// animation, or later-frame state are outside this readiness contract;
+  /// [MarkerImageLoadException]. The configuration uses a null locale because
+  /// the detached tree has no [Localizations] scope, and defaults to
+  /// [rootBundle] when no source context is supplied. Providers that select
+  /// localized images must carry the desired locale in their own inputs.
+  /// Wrappers with their own placeholder, animation, or later-frame state are
+  /// outside this readiness contract;
   /// capture reflects whatever they paint during the renderer's single
   /// build-and-paint pass.
   ///
@@ -830,13 +836,14 @@ class MarkerIconRenderer {
   /// Renders [widget] into a [MarkerIcon].
   ///
   /// If [context] is supplied, the render tree inherits that context's
-  /// `MediaQuery`, theme, directionality, and asset bundle, and the context
-  /// locale configures image-provider resolution. The detached tree contains
-  /// no `Localizations` scope (mounting one would report the captured locale
+  /// `MediaQuery`, theme, directionality, and asset bundle. The detached tree
+  /// contains no `Localizations` scope (mounting one would report the captured locale
   /// engine-wide through `setApplicationLocale`), so `Localizations.of`
   /// lookups inside [widget] resolve to nothing; pass resolved localized
   /// values into [widget] and set an explicit `Text.locale` where glyph
   /// selection depends on it.
+  /// Image-provider configurations use a null locale to match the detached
+  /// tree, and [rootBundle] when [context] is omitted.
   /// These values are captured synchronously when [render] is called. Other
   /// inherited scopes are not captured; wrap [widget] with any required
   /// application-specific scope.
@@ -973,14 +980,18 @@ class MarkerIconRenderer {
       dpr: dpr,
     );
 
-    final Future<MarkerIcon> renderFuture = _renderWithImageDependencies(
-      wrapped,
-      view: view,
-      size: size,
-      dpr: dpr,
-      prepare: options.prepare,
-      imageConfiguration: imageConfiguration,
-      imageDependencies: imageDependencies,
+    // Register the pending entry before caller-controlled preparation runs,
+    // so even synchronous cache invalidation can mark this render stale.
+    final Future<MarkerIcon> renderFuture = Future<MarkerIcon>.microtask(
+      () => _renderWithImageDependencies(
+        wrapped,
+        view: view,
+        size: size,
+        dpr: dpr,
+        prepare: options.prepare,
+        imageConfiguration: imageConfiguration,
+        imageDependencies: imageDependencies,
+      ),
     );
 
     _PendingRender? pendingEntry;
@@ -1119,9 +1130,10 @@ class MarkerIconRenderer {
     required double dpr,
   }) {
     return ImageConfiguration(
-      bundle: context != null ? DefaultAssetBundle.of(context) : null,
+      bundle: context != null ? DefaultAssetBundle.of(context) : rootBundle,
       devicePixelRatio: dpr,
-      locale: context != null ? Localizations.maybeLocaleOf(context) : null,
+      // The detached tree has no Localizations scope, so its standard Image
+      // and DecorationImage lookups also resolve with a null locale.
       textDirection: context != null
           ? (Directionality.maybeOf(context) ?? TextDirection.ltr)
           : TextDirection.ltr,
@@ -1282,8 +1294,8 @@ class MarkerIconRenderer {
     // has an engine-wide side effect: every Localizations state reports its
     // locale through PlatformDispatcher.setApplicationLocale, so a detached
     // (possibly queued and stale) marker render would overwrite the
-    // application locale the running app last reported. The captured locale
-    // still configures image-provider resolution, and the captured
+    // application locale the running app last reported. Image dependency
+    // resolution also uses a null locale to match this tree, while captured
     // Directionality preserves the exact layout direction.
     current = Directionality(textDirection: textDirection, child: current);
     current = MediaQuery(data: mediaQuery, child: current);
@@ -1411,9 +1423,8 @@ class MarkerIconRenderer {
           // Re-attaching with a null child only schedules the removal; the
           // buildScope call executes it, deactivating every descendant so
           // finalizeTree can unmount them and run State.dispose.
-          RenderObjectToWidgetAdapter<RenderBox>(
-            container: repaintBoundary,
-          ).attachToRenderTree(buildOwner, rootElement);
+          RenderObjectToWidgetAdapter<RenderBox>(container: repaintBoundary)
+              .attachToRenderTree(buildOwner, rootElement);
           buildOwner.buildScope(rootElement);
         }
         buildOwner.finalizeTree();

@@ -5,7 +5,8 @@ overlays generated with `marker_widget`.
 
 The example targets Android, iOS, and web, matching the platforms supported by
 `google_maps_flutter`. Configure the normal Google Maps API keys for the target
-platform, then run:
+platform. Use Flutter 3.47.7 / Dart 3.13.5 or later; iOS requires 15.0 or
+later. Then run:
 
 ```sh
 flutter pub get

@@ -41,4 +41,5 @@ export 'package:google_maps_flutter/google_maps_flutter.dart'
         MarkerId,
         PinConfig,
         TextGlyph;
+
 export 'src/marker_widget.dart';

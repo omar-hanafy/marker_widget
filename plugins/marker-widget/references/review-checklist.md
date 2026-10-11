@@ -67,9 +67,10 @@ data futures.
 Search: `to*` calls without `context:` where the rendered widget uses `Theme.of`,
 `Directionality`, `MediaQuery`, or `DefaultAssetBundle`.
 Why: without `context`, the render tree gets defaults (LTR, no app theme, no app
-media settings). The context locale configures image-provider resolution, but
-localization resources are not copied. Arbitrary inherited state such as Provider,
-Riverpod, Bloc, Navigator, Overlay, and Scaffold is not captured by passing context.
+media settings, root asset bundle). Image-provider configurations have a null
+locale, matching the detached tree's lack of localization resources. Arbitrary
+inherited state such as Provider, Riverpod, Bloc, Navigator, Overlay, and Scaffold
+is not captured by passing context.
 Fix: pass `context:` for the supported environment. Pass provider values directly to
 the marker widget or explicitly wrap the supplied widget with the required scope.
 Pass already resolved localized strings into the marker widget.

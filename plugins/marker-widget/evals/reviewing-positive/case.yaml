@@ -2,7 +2,7 @@ name: "reviewing-positive"
 description: "The reviewing skill should audit pasted marker code against the checklist and report in the four-section contract"
 prompt: |
   Review this file from my Flutter app (lib/markers.dart) for marker_widget
-  problems. The app depends on marker_widget 3.x in pubspec.yaml.
+  problems. The app depends on marker_widget 4.x in pubspec.yaml.
 
   ```dart
   // lib/markers.dart

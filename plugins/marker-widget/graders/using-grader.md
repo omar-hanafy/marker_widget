@@ -11,7 +11,7 @@ during the run: a correct-looking answer produced without loading the
 
 Award points (sum, cap at 1.0):
 
-- 0.3: the answer uses the documented 3.x API shapes: an extension call such as
+- 0.3: the answer uses the documented 4.x API shapes: an extension call such as
   `toMarker(base: Marker(...))` or `toBitmapDescriptor(...)` with named `context:`
   and `renderOptions:`/`MarkerRenderOptions`.
 - 0.25: it sets a `cacheKey` (ideally via `MarkerCacheKey`) and, given the app
@@ -26,7 +26,7 @@ Award points (sum, cap at 1.0):
   loads), markers stored in state.
 
 Score 0.0 regardless of the above if the answer invents APIs that do not exist in
-marker_widget 3.x or tells the user to screenshot widgets via RepaintBoundary keys
+marker_widget 4.x or tells the user to screenshot widgets via RepaintBoundary keys
 placed in the visible tree instead of using the package.
 
 Respond with only a JSON object: {"score": 0.0..1.0, "reasoning": "..."}

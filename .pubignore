@@ -10,6 +10,7 @@
 build/
 coverage/
 pubspec.lock
+Podfile.lock
 FOLLOWUP.md
 example/macos/
 example/linux/
