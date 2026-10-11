@@ -8,6 +8,7 @@
 *.swp
 *.iml
 build/
+.kotlin/
 coverage/
 pubspec.lock
 Podfile.lock
