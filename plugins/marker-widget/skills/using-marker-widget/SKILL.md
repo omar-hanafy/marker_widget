@@ -21,10 +21,10 @@ output (use marker-widget:troubleshooting-marker-widget).
 
 ## Step 1: Inspect before writing code
 
-1. `pubspec.yaml` / lockfile: confirm `marker_widget` 3.x and `google_maps_flutter`
-   >= 2.17.1.
-2. Check SDK floors: Dart ^3.12.0, Flutter >= 3.44.0. If the project cannot meet
-   them, marker_widget 3.x is not installable; say so instead of forcing constraints.
+1. `pubspec.yaml` / lockfile: confirm `marker_widget` 4.x and `google_maps_flutter`
+   >= 2.18.2.
+2. Check SDK floors: Dart ^3.13.5, Flutter >= 3.47.7. If the project cannot meet
+   them, marker_widget 4.x is not installable; say so instead of forcing constraints.
 3. Note target platforms (android/ios/web only; google_maps_flutter has no desktop
    support) and whether the app has dark mode or localization (affects cache keys and
    the `context` decision).
@@ -93,11 +93,13 @@ Decision points:
   rasterization. It runs only on a cache miss, so include the prepared content's
   revision in `cacheKey` whenever it changes pixels.
 - Pass `context:` whenever the widget uses Theme, MediaQuery, Directionality,
-  or DefaultAssetBundle. The context locale configures image-provider resolution,
-  but the detached tree has NO `Localizations` scope (3.1+; mounting one reports
+  or DefaultAssetBundle. Image-provider configurations have a null locale,
+  matching the detached tree's lack of a `Localizations` scope (mounting one reports
   the locale engine-wide), so `Localizations.of` lookups resolve to nothing: pass
   already resolved localized values into the widget and set `Text.locale` where
-  glyph selection depends on it. Arbitrary inherited state such as Provider,
+  glyph selection depends on it. Providers that select localized images must carry
+  the desired locale in their own inputs. Without `context`, their asset bundle is
+  Flutter's `rootBundle`. Arbitrary inherited state such as Provider,
   Riverpod, Bloc, Navigator, Overlay, and Scaffold is not captured, and
   `View.of(context)` has no `View` widget to find. Pass those values into the
   marker widget or wrap the supplied widget with the required scope. Omit `context`

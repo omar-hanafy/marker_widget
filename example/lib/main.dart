@@ -234,19 +234,18 @@ class _MarkerWidgetExamplePageState extends State<MarkerWidgetExamplePage> {
           });
         case _DemoMode.groundOverlay:
           final BytesMapBitmap bitmap =
-              await _GroundOverlayCard(
-                label: 'Widget Ground Overlay',
-              ).toGroundOverlayBitmap(
-                context: context,
-                renderOptions: MarkerRenderOptions(
-                  logicalSize: const Size(180, 120),
-                  cacheKey: MarkerCacheKey(
-                    'ground-overlay',
-                    brightness: theme.brightness,
-                    locale: Localizations.maybeLocaleOf(context),
-                  ),
-                ),
-              );
+              await _GroundOverlayCard(label: 'Widget Ground Overlay')
+                  .toGroundOverlayBitmap(
+                    context: context,
+                    renderOptions: MarkerRenderOptions(
+                      logicalSize: const Size(180, 120),
+                      cacheKey: MarkerCacheKey(
+                        'ground-overlay',
+                        brightness: theme.brightness,
+                        locale: Localizations.maybeLocaleOf(context),
+                      ),
+                    ),
+                  );
 
           final GroundOverlay overlay = GroundOverlay.fromBounds(
             groundOverlayId: const GroundOverlayId('widget-ground-overlay'),
@@ -435,18 +434,15 @@ class _ClassicMarkerCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               title,
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-              ),
+              style: Theme.of(context).textTheme.titleSmall
+                  ?.copyWith(color: Colors.white, fontWeight: FontWeight.bold),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 4),
             Text(
               subtitle,
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: Colors.white70),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: Colors.white70),
               textAlign: TextAlign.center,
             ),
           ],
@@ -472,10 +468,8 @@ class _GlyphBadge extends StatelessWidget {
       child: Center(
         child: Text(
           label,
-          style: Theme.of(context).textTheme.labelLarge?.copyWith(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-          ),
+          style: Theme.of(context).textTheme.labelLarge
+              ?.copyWith(color: Colors.white, fontWeight: FontWeight.bold),
         ),
       ),
     );
@@ -517,9 +511,8 @@ class _GroundOverlayCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               'Rendered from a Flutter widget',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: scheme.onPrimaryContainer,
-              ),
+              style: Theme.of(context).textTheme.bodyMedium
+                  ?.copyWith(color: scheme.onPrimaryContainer),
               textAlign: TextAlign.center,
             ),
           ],

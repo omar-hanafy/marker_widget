@@ -9,7 +9,7 @@ Diagnose by symptom, confirm the cause in code, apply the smallest fix, then ver
 a device. Do not tweak options at random: every symptom below has a small set of real
 causes.
 
-Audience: developers with a failing or wrong marker_widget 3.x integration. Inputs:
+Audience: developers with a failing or wrong marker_widget 4.x integration. Inputs:
 the exact symptom (screenshot or error text) and the render call site.
 
 ## Diagnosis workflow

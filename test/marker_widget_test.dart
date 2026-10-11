@@ -218,6 +218,42 @@ class _SizeKeyedImageProvider extends ImageProvider<(Object, Size?)> {
   }
 }
 
+/// Makes every image-configuration field part of the cache key, so a warmed
+/// image is available synchronously only when the widget resolves it with the
+/// same configuration as its declared dependency.
+class _ConfigurationKeyedImageProvider
+    extends ImageProvider<(Object, ImageConfiguration)> {
+  _ConfigurationKeyedImageProvider(this.image);
+
+  final ui.Image image;
+  final Object _identity = Object();
+  final List<ImageConfiguration> resolvedConfigurations =
+      <ImageConfiguration>[];
+  int loadCount = 0;
+
+  @override
+  Future<(Object, ImageConfiguration)> obtainKey(
+    ImageConfiguration configuration,
+  ) {
+    resolvedConfigurations.add(configuration);
+    return SynchronousFuture<(Object, ImageConfiguration)>((
+      _identity,
+      configuration,
+    ));
+  }
+
+  @override
+  ImageStreamCompleter loadImage(
+    (Object, ImageConfiguration) key,
+    ImageDecoderCallback decode,
+  ) {
+    loadCount++;
+    return OneFrameImageStreamCompleter(
+      Future<ImageInfo>.value(ImageInfo(image: image.clone())),
+    );
+  }
+}
+
 class _ThemeColorBox extends StatelessWidget {
   const _ThemeColorBox();
 
@@ -414,9 +450,8 @@ void main() {
       });
 
       test('supports pixel-perfect rendered DPR metadata', () {
-        final bitmap = buildIcon(
-          pixelRatio: 3.5,
-        ).toMapBitmap(options: const MapBitmapOptions.pixelPerfect());
+        final bitmap = buildIcon(pixelRatio: 3.5)
+            .toMapBitmap(options: const MapBitmapOptions.pixelPerfect());
 
         expect(bitmap.width, isNull);
         expect(bitmap.height, isNull);
@@ -781,18 +816,15 @@ void main() {
       expect(pinConfig.glyph, isA<BitmapGlyph>());
     });
 
-    test(
-      'MapBitmapOptions.pixelPerfect uses rendered pixel ratio at conversion time',
-      () {
-        const options = MapBitmapOptions.pixelPerfect();
+    test('MapBitmapOptions.pixelPerfect uses rendered pixel ratio at conversion time', () {
+      const options = MapBitmapOptions.pixelPerfect();
 
-        expect(options.useRenderedPixelRatio, isTrue);
-        expect(options.bitmapScaling, MapBitmapScaling.auto);
-        expect(options.width, isNull);
-        expect(options.height, isNull);
-        expect(options.imagePixelRatio, isNull);
-      },
-    );
+      expect(options.useRenderedPixelRatio, isTrue);
+      expect(options.bitmapScaling, MapBitmapScaling.auto);
+      expect(options.width, isNull);
+      expect(options.height, isNull);
+      expect(options.imagePixelRatio, isNull);
+    });
   });
 
   group('MarkerIconRenderer', () {
@@ -2170,6 +2202,128 @@ void main() {
       });
     });
 
+    testWidgets('matches image configuration in a localized detached tree', (
+      tester,
+    ) async {
+      final bundle = _TestAssetBundle('marker-images');
+      late BuildContext sourceContext;
+      await tester.pumpWidget(
+        Localizations(
+          locale: const Locale('ar'),
+          delegates: const [DefaultWidgetsLocalizations.delegate],
+          child: Directionality(
+            textDirection: TextDirection.rtl,
+            child: DefaultAssetBundle(
+              bundle: bundle,
+              child: MediaQuery(
+                data: const MediaQueryData(devicePixelRatio: 4),
+                child: Builder(
+                  builder: (context) {
+                    sourceContext = context;
+                    return const SizedBox.shrink();
+                  },
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(Localizations.maybeLocaleOf(sourceContext), const Locale('ar'));
+
+      await tester.runAsync(() async {
+        final source = await _solidImage(const Color(0xFFFF0000));
+        try {
+          final provider = _ConfigurationKeyedImageProvider(source);
+          final renderer = MarkerIconRenderer(enableCaching: false);
+          final icon = await renderer.render(
+            Image(image: provider, width: 16, height: 16, fit: BoxFit.fill),
+            context: sourceContext,
+            options: MarkerRenderOptions(
+              logicalSize: const Size(16, 16),
+              pixelRatio: 2,
+              imageDependencies: [
+                MarkerImageDependency(
+                  provider,
+                  configurationSize: const Size(16, 16),
+                ),
+              ],
+            ),
+          );
+
+          expect(await _centerPixel(icon.bytes), const Color(0xFFFF0000));
+          expect(
+            provider.resolvedConfigurations.length,
+            greaterThanOrEqualTo(2),
+          );
+          expect(
+            provider.resolvedConfigurations,
+            everyElement(
+              equals(
+                ImageConfiguration(
+                  bundle: bundle,
+                  devicePixelRatio: 2,
+                  textDirection: TextDirection.rtl,
+                  size: const Size(16, 16),
+                  platform: defaultTargetPlatform,
+                ),
+              ),
+            ),
+          );
+          expect(provider.loadCount, 1);
+        } finally {
+          source.dispose();
+        }
+      });
+    });
+
+    testWidgets('matches image configuration without a source context', (
+      tester,
+    ) async {
+      await tester.runAsync(() async {
+        final source = await _solidImage(const Color(0xFF00FF00));
+        try {
+          final provider = _ConfigurationKeyedImageProvider(source);
+          final renderer = MarkerIconRenderer(enableCaching: false);
+          final icon = await renderer.render(
+            Image(image: provider, width: 16, height: 16, fit: BoxFit.fill),
+            options: MarkerRenderOptions(
+              logicalSize: const Size(16, 16),
+              pixelRatio: 1.5,
+              imageDependencies: [
+                MarkerImageDependency(
+                  provider,
+                  configurationSize: const Size(16, 16),
+                ),
+              ],
+            ),
+          );
+
+          expect(await _centerPixel(icon.bytes), const Color(0xFF00FF00));
+          expect(
+            provider.resolvedConfigurations.length,
+            greaterThanOrEqualTo(2),
+          );
+          expect(
+            provider.resolvedConfigurations,
+            everyElement(
+              equals(
+                ImageConfiguration(
+                  bundle: rootBundle,
+                  devicePixelRatio: 1.5,
+                  textDirection: TextDirection.ltr,
+                  size: const Size(16, 16),
+                  platform: defaultTargetPlatform,
+                ),
+              ),
+            ),
+          );
+          expect(provider.loadCount, 1);
+        } finally {
+          source.dispose();
+        }
+      });
+    });
+
     testWidgets('resolves size-sensitive providers with the declared size', (
       tester,
     ) async {
@@ -2495,6 +2649,41 @@ void main() {
         expect(identical(firstIcon, cachedIcon), isTrue);
       });
     });
+
+    for (final invalidation in <String, void Function(MarkerIconRenderer)>{
+      'clearCache': (renderer) => renderer.clearCache(),
+      'removeFromCache': (renderer) =>
+          renderer.removeFromCache('prepared-invalidation'),
+    }.entries) {
+      testWidgets(
+        'synchronous preparation invalidation with ${invalidation.key}',
+        (tester) async {
+          final renderer = MarkerIconRenderer();
+          var preparationCalls = 0;
+          final icon = await tester.runAsync(
+            () => renderer.render(
+              const ColoredBox(color: Colors.blue),
+              options: MarkerRenderOptions(
+                logicalSize: const Size(16, 16),
+                pixelRatio: 1,
+                cacheKey: 'prepared-invalidation',
+                prepare: () {
+                  preparationCalls++;
+                  invalidation.value(renderer);
+                  return Future<void>.value();
+                },
+              ),
+            ),
+          );
+
+          expect(preparationCalls, 1);
+          expect(icon!.bytes, isNotEmpty);
+          expect(renderer.isCached('prepared-invalidation'), isFalse);
+          expect(renderer.cacheSize, 0);
+          expect(renderer.cacheSizeInBytes, 0);
+        },
+      );
+    }
 
     testWidgets('propagates preparation errors', (tester) async {
       await tester.pumpWidget(

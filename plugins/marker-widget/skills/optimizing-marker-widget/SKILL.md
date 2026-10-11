@@ -9,7 +9,7 @@ Every render is a full off-screen widget build + rasterize + PNG encode on the U
 isolate. Performance work with this package is almost entirely about rendering less:
 correct cache keys, correct invalidation, and reuse.
 
-Audience: developers whose app already uses marker_widget 3.x. Inputs: the symptom
+Audience: developers whose app already uses marker_widget 4.x. Inputs: the symptom
 (jank, memory growth, stale icons, slow first paint) and the code paths that create
 markers. Not for: broken/blank output (marker-widget:troubleshooting-marker-widget) or
 first-time integration (marker-widget:using-marker-widget).
@@ -61,7 +61,8 @@ smell, fix first).
 - Logout/account switch: `clearCache()` always (user avatars must not survive).
 - One entity changed: `removeFromCache(key)` then re-render.
 - Invalidation is safe against races: renders started before `clearCache()`/
-  `removeFromCache()` cannot repopulate the cache.
+  `removeFromCache()` cannot repopulate the cache, including invalidation performed
+  synchronously inside `prepare`. Their callers still receive the rendered icons.
 
 ### Step 4: Bound memory
 

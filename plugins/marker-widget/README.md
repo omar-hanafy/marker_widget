@@ -18,7 +18,7 @@ shipped in the pub.dev archive; it is installed from this Git repository.
 | `troubleshooting-marker-widget` | skill | Blank markers, missing network images, MarkerImageLoadException, MarkerRenderException, wrong size or blurry output, invisible advanced markers, StateError/ArgumentError messages, hanging widget tests |
 | `reviewing-marker-widget` | skill | Read-only audit of a codebase for marker_widget misuse; the canonical 12-item checklist workflow and report format used by every review surface |
 | `marker-widget-reviewer` | agent (Claude Code only) | Delegable wrapper that runs the `reviewing-marker-widget` skill with read-only tools |
-| `references/` | shared docs | v3 API quick reference and the 12-item review checklist used by the skills and the agent |
+| `references/` | shared docs | v4 API quick reference and the 12-item review checklist used by the skills and the agent |
 | `evals/` + `graders/` | eval suite | Regression tests for skill triggering and answer quality (`claude plugin eval`) |
 
 There are no hooks, no MCP servers, no network access, and no executable scripts in
@@ -94,7 +94,7 @@ must be installed first instead of improvising an audit.
 
 ## Supported versions
 
-- Package coverage: marker_widget 3.x APIs.
+- Package coverage: marker_widget 4.x APIs.
 - Verified against Claude Code 2.1.x and codex-cli 0.144.x. Skills use the shared
   SKILL.md format (agentskills.io); frontmatter is restricted to fields both products
   accept.

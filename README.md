@@ -37,7 +37,7 @@ Claude Code too). Then try:
 
 The plugin contains instructions and reference documents only: no hooks, no MCP
 servers, no executable scripts, no network access; the reviewer agent is restricted
-to read-only tools. The skills cover marker_widget 3.x and are verified with Claude
+to read-only tools. The skills cover marker_widget 4.x and are verified with Claude
 Code 2.1.x and codex-cli 0.144.x. Update
 with `claude plugin update marker-widget` / `codex plugin marketplace upgrade
 marker-widget`; uninstall with `claude plugin uninstall marker-widget` /
@@ -66,8 +66,8 @@ recipe, maintainer guide): [`plugins/marker-widget/README.md`](plugins/marker-wi
 dependencies:
   flutter:
     sdk: flutter
-  google_maps_flutter: ^2.17.1
-  marker_widget: ^3.1.0
+  google_maps_flutter: ^2.18.2
+  marker_widget: ^4.0.0
 ```
 
 Then run:
@@ -76,7 +76,7 @@ Then run:
 flutter pub get
 ```
 
-Requires Dart `^3.12.0` and Flutter `>=3.44.0`.
+Requires Dart `^3.13.5` and Flutter `>=3.47.7`.
 
 ## Quick start
 
@@ -162,7 +162,7 @@ final overlay = GroundOverlay.fromBounds(
 );
 ```
 
-## The v3 model
+## Rendering model
 
 Marker creation is split into two layers:
 
@@ -240,8 +240,8 @@ final marker = await DriverBadge(avatar: avatar).toMarker(
 
 The contract:
 
-- Each `MarkerImageDependency` is resolved against the captured render
-  environment (pixel ratio, locale, text direction, asset bundle, and its
+- Each `MarkerImageDependency` is resolved against the detached render
+  environment (pixel ratio, text direction, asset bundle, a null locale, and its
   declared `configurationSize`) and awaited until its first frame is decoded
   before the widget tree is built. For static PNG/JPEG/WebP content that is
   the full image; animated GIF/WebP providers are outside the deterministic
@@ -254,6 +254,10 @@ The contract:
   `MarkerImageLoadException` instead of stalling the image queue forever.
 - Use the same provider instances (or providers with equal cache keys) as the
   widget itself displays.
+- Image-provider configurations have a null locale because the detached tree
+  has no `Localizations` scope. Providers that select localized images must
+  carry the desired locale in their own inputs. Without `context`, the asset
+  bundle is Flutter's `rootBundle`.
 - For a provider whose key depends on `ImageConfiguration.size`, set
   `configurationSize` to the exact size Flutter uses at the image site. For an
   `Image` with explicit width and height, use those dimensions; for a
@@ -337,9 +341,10 @@ Future<AdvancedMarker> toAdvancedPinMarker({
 ```
 
 You can omit `context` when you do not need to inherit theme, directionality,
-`MediaQuery`, or the current asset bundle. The context locale is also used for
-image-provider resolution. Pass already resolved localized strings into the marker
-widget; localization delegates are not reloaded inside the detached render tree.
+`MediaQuery`, or the current asset bundle. Image-provider resolution uses a null
+locale, matching the detached tree. Pass already resolved localized strings into
+the marker widget; localization delegates are not reloaded inside the detached
+render tree.
 
 `MarkerIcon` exposes the same bitmap, glyph, and builder methods synchronously after rendering. Its bytes are defensively copied and unmodifiable, so an icon can never change after construction.
 
@@ -368,7 +373,7 @@ bitmap.
 
 Passing `context` captures inherited themes, `MediaQuery` accessibility
 values (text scaling, brightness, bold text), `Directionality`, and the asset
-bundle. Its locale is used for image-provider configuration, but no
+bundle. Image-provider configurations use a null locale because no
 `Localizations` scope is installed inside the detached tree (mounting one
 reports its locale engine-wide via `setApplicationLocale`), and arbitrary
 `InheritedWidget`s such as provider scopes are not copied. Pass resolved
@@ -406,6 +411,10 @@ print(MarkerIconRenderer.shared.cacheSizeInBytes);
 - in-flight render deduplication
 - invalidation-safe cache clearing while renders are still in flight
 - explicit cache inspection via `cacheSize`, `cacheSizeInBytes`, `isCached`, and `peekCache`
+
+`clearCache()` and `removeFromCache(key)` prevent pending renders from repopulating
+the cache, including invalidation performed synchronously inside `prepare`.
+Those renders still return their icons to their callers.
 
 Cache entries are identified by `cacheKey` combined with the resolved logical
 size and pixel ratio, so one key can never return an icon rendered at another
@@ -474,6 +483,17 @@ icon updates. Cache hits therefore avoid both re-rendering and marker churn.
 - The package only renders widgets and builds marker objects; you still need normal Google Maps API key and manifest setup
 - In multi-view scenarios, pass `context` so the renderer resolves the `FlutterView` the marker belongs to
 - Google Maps types come from the supported `google_maps_flutter` facade; `marker_widget` re-exports the subset used by its API
+
+## Migrating from 3.x
+
+Upgrade to Flutter 3.47.7 / Dart 3.13.5 or later and
+`google_maps_flutter ^2.18.2`. Existing marker construction APIs are unchanged.
+
+Image dependencies now resolve with the same configuration as the detached
+widget tree: a null locale, and `rootBundle` when no context is supplied. If a
+custom image provider chooses localized content, pass the locale into the
+provider itself and include it in its cache key. This keeps preloading and the
+widget's image lookup consistent.
 
 ## Migrating from 2.x
 

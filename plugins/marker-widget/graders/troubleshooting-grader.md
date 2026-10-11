@@ -21,7 +21,7 @@ Award points (sum, cap at 1.0):
   Reusing the same instance is the simplest correct example. Recommending only
   `precacheImage` without `imageDependencies` earns at most half of this bullet
   (it narrows the race but is not the package's guaranteed path).
-- 0.2: correctly characterizes the 3.x readiness contract: declared dependencies
+- 0.2: correctly characterizes the 4.x readiness contract: declared dependencies
   are awaited to full decode and retained until capture (deterministic, no
   delays), and/or notes that a failing provider surfaces as
   `MarkerImageLoadException` instead of a silently blank marker.

@@ -1,6 +1,6 @@
-# marker_widget v3 API quick reference
+# marker_widget v4 API quick reference
 
-Ground truth: `lib/src/marker_widget.dart` in marker_widget 3.x. When in doubt, read the
+Ground truth: `lib/src/marker_widget.dart` in marker_widget 4.x. When in doubt, read the
 installed source in the consumer project: `.dart_tool/package_config.json` locates the
 package root; the whole implementation is that one file.
 
@@ -21,8 +21,8 @@ package root; the whole implementation is that one file.
 Common named parameters on every extension method:
 
 - `context` (optional `BuildContext`): inherit MediaQuery, theme, directionality,
-  and `DefaultAssetBundle` from the app. Its locale is used for image-provider
-  resolution, but NO `Localizations` scope exists inside the detached tree
+  and `DefaultAssetBundle` from the app. Image-provider configurations use a null
+  locale because NO `Localizations` scope exists inside the detached tree
   (mounting one would report the locale engine-wide via `setApplicationLocale`),
   so `Localizations.of` lookups in the marker widget resolve to nothing; pass
   resolved localized strings in. Omit only for environment-independent icons.
@@ -71,9 +71,11 @@ MarkerRenderOptions(
 
 Contract:
 
-1. Each dependency's provider is resolved against the captured render environment
-   (pixel ratio, locale, text direction, asset bundle, platform) and awaited until
-   its FIRST decoded frame before the widget tree is built. For static
+1. Each dependency's provider is resolved against the detached render environment
+   (pixel ratio, null locale, text direction, asset bundle, platform) and awaited
+   until its FIRST decoded frame before the widget tree is built. Without `context`,
+   the asset bundle is Flutter's `rootBundle`. Providers that select localized
+   images must carry the desired locale in their own inputs. For static
    PNG/JPEG/WebP content that is the whole image; animated GIF/WebP providers are
    outside the deterministic contract (the captured frame is unspecified), so
    convert animations to a static frame first. One deterministic paint pass; no
@@ -186,7 +188,8 @@ each such combination as one entry. `isCached(key)` matches any variant of the k
 `peekCache(key)` returns the most recently used variant (no LRU bump),
 `removeFromCache(key)` evicts every variant. After `clearCache()`/
 `removeFromCache()`, in-flight renders started earlier still resolve for their
-callers but will NOT repopulate the cache.
+callers but will NOT repopulate the cache. This includes invalidation performed
+synchronously inside their `prepare` callbacks.
 
 Render limits: `maxConcurrentRenders` gates detached render trees;
 `maxConcurrentImageLoads` separately gates image-backed jobs from dependency
@@ -266,4 +269,4 @@ without conflicts. Do not add an import of
   https://issuetracker.google.com/issues/370536110. Prefer `toAdvancedMarker` (full
   bitmap icon) over `toAdvancedPinMarker` when iOS reliability matters.
 - Supported platforms: Android, iOS, web (google_maps_flutter's platforms).
-- SDK floors: Dart `^3.12.0`, Flutter `>=3.44.0`, google_maps_flutter `^2.17.1`.
+- SDK floors: Dart `^3.13.5`, Flutter `>=3.47.7`, google_maps_flutter `^2.18.2`.
